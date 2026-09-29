@@ -1,0 +1,1 @@
+{{ "x" | link:"javascript:alert(1)" }}

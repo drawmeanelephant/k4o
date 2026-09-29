@@ -42,6 +42,8 @@ const cases = [_]Case{
     .{ .name = "filter-blockquote-basic", .template = @embedFile("fixtures/filter-blockquote-basic.knap"), .data = @embedFile("fixtures/filter-blockquote-basic.json"), .expected = @embedFile("fixtures/filter-blockquote-basic.textile") },
     .{ .name = "filter-codeblock-basic", .template = @embedFile("fixtures/filter-codeblock-basic.knap"), .data = @embedFile("fixtures/filter-codeblock-basic.json"), .expected = @embedFile("fixtures/filter-codeblock-basic.textile") },
     .{ .name = "filter-link-basic", .template = @embedFile("fixtures/filter-link-basic.knap"), .data = @embedFile("fixtures/filter-link-basic.json"), .expected = @embedFile("fixtures/filter-link-basic.textile") },
+    .{ .name = "filter-link-data-arg", .template = @embedFile("fixtures/filter-link-data-arg.knap"), .data = @embedFile("fixtures/filter-link-data-arg.json"), .expected = @embedFile("fixtures/filter-link-data-arg.textile") },
+    .{ .name = "filter-link-literal-arg", .template = @embedFile("fixtures/filter-link-literal-arg.knap"), .data = @embedFile("fixtures/filter-link-literal-arg.json"), .expected = @embedFile("fixtures/filter-link-literal-arg.textile") },
     .{ .name = "filter-list-basic", .template = @embedFile("fixtures/filter-list-basic.knap"), .data = @embedFile("fixtures/filter-list-basic.json"), .expected = @embedFile("fixtures/filter-list-basic.textile") },
     .{ .name = "filter-list-nested", .template = @embedFile("fixtures/filter-list-nested.knap"), .data = @embedFile("fixtures/filter-list-nested.json"), .expected = @embedFile("fixtures/filter-list-nested.textile") },
     .{ .name = "filter-numbered-basic", .template = @embedFile("fixtures/filter-numbered-basic.knap"), .data = @embedFile("fixtures/filter-numbered-basic.json"), .expected = @embedFile("fixtures/filter-numbered-basic.textile") },
@@ -89,6 +91,10 @@ const error_cases = [_]ErrorCase{
     .{ .name = "err-unknown-filter", .template = @embedFile("fixtures/errors/err-unknown-filter.knap"), .message = @embedFile("fixtures/errors/err-unknown-filter.error") },
     .{ .name = "err-bad-args-extra", .template = @embedFile("fixtures/errors/err-bad-args-extra.knap"), .message = @embedFile("fixtures/errors/err-bad-args-extra.error") },
     .{ .name = "err-bad-args-link-missing", .template = @embedFile("fixtures/errors/err-bad-args-link-missing.knap"), .message = @embedFile("fixtures/errors/err-bad-args-link-missing.error") },
+    .{ .name = "err-link-scheme-javascript", .template = @embedFile("fixtures/errors/err-link-scheme-javascript.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-javascript.error") },
+    .{ .name = "err-link-scheme-from-data", .template = @embedFile("fixtures/errors/err-link-scheme-from-data.knap"), .data = @embedFile("fixtures/errors/err-link-scheme-from-data.json"), .message = @embedFile("fixtures/errors/err-link-scheme-from-data.error") },
+    .{ .name = "err-link-scheme-data", .template = @embedFile("fixtures/errors/err-link-scheme-data.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-data.error") },
+    .{ .name = "err-arg-resolves-to-object", .template = @embedFile("fixtures/errors/err-arg-resolves-to-object.knap"), .data = @embedFile("fixtures/errors/err-arg-resolves-to-object.json"), .message = @embedFile("fixtures/errors/err-arg-resolves-to-object.error") },
     .{ .name = "err-multiline-bold", .template = @embedFile("fixtures/errors/err-multiline-bold.knap"), .data = @embedFile("fixtures/errors/err-multiline-bold.json"), .message = @embedFile("fixtures/errors/err-multiline-bold.error") },
     .{ .name = "err-ragged-table", .template = @embedFile("fixtures/errors/err-ragged-table.knap"), .data = @embedFile("fixtures/errors/err-ragged-table.json"), .message = @embedFile("fixtures/errors/err-ragged-table.error") },
     .{ .name = "err-deep-list", .template = @embedFile("fixtures/errors/err-deep-list.knap"), .data = @embedFile("fixtures/errors/err-deep-list.json"), .message = @embedFile("fixtures/errors/err-deep-list.error") },
@@ -336,6 +342,43 @@ test "unit: float and integer rendering" {
 
 test "unit: three-filter chain" {
     try renderOk("{{ \"n\" | code | bold | h2 }}", "{}", "h2. *@n@*");
+}
+
+test "unit: a bare filter argument falls back to the literal" {
+    // No such key in the data root, so `missing` stays the word.
+    try renderOk("{{ \"x\" | link:missing }}", "{}", "\"x\":missing");
+}
+
+test "unit: bare filter arguments render scalar data values" {
+    try renderOk("{{ \"x\" | link:n }}", "{\"n\":42}", "\"x\":42");
+    try renderOk("{{ \"x\" | link:b }}", "{\"b\":true}", "\"x\":true");
+    try renderOk("{{ \"x\" | link:s }}", "{\"s\":\"https://y/\"}", "\"x\":https://y/");
+}
+
+test "unit: a non-text filter argument is a bad argument" {
+    try renderErr("{{ \"x\" | link:obj }}", "{\"obj\":{\"k\":1}}", "filter arguments must be text");
+    try renderErr("{{ \"x\" | link:u }}", "{\"u\":null}", "filter arguments must be text");
+}
+
+test "unit: navigational and relative link URLs stay allowed" {
+    try renderOk("{{ \"x\" | link:\"mailto:a@b.c\" }}", "{}", "\"x\":mailto:a@b.c");
+    try renderOk("{{ \"x\" | link:\"file:///etc/passwd\" }}", "{}", "\"x\":file:///etc/passwd");
+    try renderOk("{{ \"x\" | link:\"../notes/page.html\" }}", "{}", "\"x\":../notes/page.html");
+    // A colon that is not a well-formed scheme belongs to the path.
+    try renderOk("{{ \"x\" | link:\"a/b:c\" }}", "{}", "\"x\":a/b:c");
+}
+
+test "unit: blocked link schemes are rejected case-insensitively" {
+    for ([_][]const u8{ "javascript:alert(1)", "JavaScript:alert(1)", "JAVASCRIPT:alert(1)", "vbscript:m", "data:text/html,x" }) |url| {
+        var buf: [128]u8 = undefined;
+        // `{{{{` / `}}}}` because std.fmt treats doubled braces as escapes.
+        const tpl = try std.fmt.bufPrint(&buf, "{{{{ \"x\" | link:\"{s}\" }}}}", .{url});
+        try renderErr(tpl, "{}", "which can execute script");
+    }
+}
+
+test "unit: a blocked scheme reaching link through the data is rejected" {
+    try renderErr("{{ name | link:url }}", "{\"name\":\"c\",\"url\":\"javascript:alert(1)\"}", "which can execute script");
 }
 
 test "unit: spaced names are not valid condition operands" {

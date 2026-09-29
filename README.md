@@ -49,7 +49,7 @@ documentation (see the clean-room record below):
 | --- | --- | --- |
 | Interpolation | `{{ title }}` | Whitespace optional (`{{title}}`). A value resolving to an object or array renders as compact JSON — see [Structured values](#structured-values). |
 | Paths | `{{ author.name }}`, `{{ authors[0].name }}`, `{{ metadata["article:section"] }}` | Dotted properties and bracket access with a number or a quoted key. Names may contain spaces in interpolation (`{{ First name }}`). |
-| Filters | `{{ value \| filter }}`, `{{ value \| filter:arg }}` | Chains run left to right: `{{ name \| italic \| h2 }}`. At most one argument (bare word, quoted string, or number). |
+| Filters | `{{ value \| filter }}`, `{{ value \| filter:arg }}` | Chains run left to right: `{{ name \| italic \| h2 }}`. At most one argument; a bare word resolves against the data root, a quoted or numeric argument is a literal. See [Filter arguments](#filter-arguments). |
 | Literals | `{{ "text" }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}` | Usable as values and as condition operands. |
 | Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. `==`/`!=` compare the whole value structurally, so objects and arrays work and key order does not matter; `<`/`<=`/`>`/`>=` are numbers and strings only. |
 | Truthiness | — | `false`, `null`, missing values, `""`, `0`, and `[]` are false; everything else true. |
@@ -100,6 +100,54 @@ Floats are the one place where interpolation is lossy: `{"a":2.0}` renders as
 `{{ a }}` for display and compare with `==` when the distinction matters —
 `{% if a == 2 %}` is true for both `2` and `2.0`.
 
+### Filter arguments
+
+A filter takes at most one argument, and how it is written decides whether it
+is a value or a literal.
+
+| Written as | Meaning |
+| --- | --- |
+| `filter:"text"` | The literal `text`. Always. |
+| `filter:7` | The literal `7`. |
+| `filter:name` | The value of the top-level data key `name`, **or** the literal word `name` if the data has no such key. |
+
+So with `{"name":"Example","url":"https://example.com/post"}`:
+
+```text
+{{ name | link:url }}      -> "Example":https://example.com/post
+{{ name | link:"url" }}    -> "Example":url
+```
+
+The bare form exists because the common case is a URL that lives in the data,
+and the alternative is unreachable: there is no syntax for putting a
+data-derived value into a filter argument other than a bare word. Only
+top-level keys are consulted — `link:a.b` is a syntax error, not a nested
+lookup.
+
+If the key exists but holds `null`, an object or an array, the argument is a
+`bad argument` error rather than a silent fallback to the bare word, since
+none of those have a text form.
+
+### URL schemes in `link`
+
+`link` refuses the `javascript:`, `vbscript:` and `data:` schemes (matched
+case-insensitively), because a Textile renderer will happily turn those into
+script execution:
+
+```text
+{{ name | link:url }}   with {"url":"javascript:alert(1)"}   -> bad argument
+```
+
+Navigational and relative URLs are untouched — `http:`, `https:`,
+`mailto:`, `ftp:`, `file:` and site-relative paths all pass. A colon that is
+not a well-formed scheme, as in `a/b:c`, is treated as part of the path.
+
+The trust boundary here is deliberate: this tool's stated purpose is to
+produce Textile for a downstream parser, so a scheme that executes in that
+parser is refused at the point it is written rather than shipped. If your
+input is trusted and you need one of the refused schemes anyway, this is a
+deliberate limit, not an oversight.
+
 ## Filter registry → Textile mapping
 
 Every filter emits Textile. This is the complete registry (15 names); the
@@ -125,6 +173,9 @@ Error conditions (all produce a message with kind, line, and column):
 - Phrase filters (`h1`…`h6`, `bold`, `italic`, `code`, `blockquote`, `link`)
   require single-line text; `link` also rejects `"` in text and whitespace or
   `"` in the URL.
+- `link` rejects the `javascript:`, `vbscript:` and `data:` URL schemes, and
+  any filter argument that resolves to a non-text value. See
+  [URL schemes](#url-schemes-in-link).
 - `list`/`numbered`/`table` require arrays; `table` rows must all have the
   same cell count and cells must not contain `|` or newlines; `list` nesting
   beyond 3 levels is an error.
@@ -207,9 +258,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 29 passed, 0 failed |
-| `passthrough` | 0 passed, 29 failed |
-| `markdown` | 0 passed, 29 failed |
+| `normal` | 35 passed, 0 failed |
+| `passthrough` | 0 passed, 35 failed |
+| `markdown` | 0 passed, 35 failed |
 <!-- verify-table:end -->
 
 CI runs the same script on `ubuntu-latest` at Zig 0.16.0. The counts are
