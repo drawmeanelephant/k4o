@@ -1,0 +1,1 @@
+bad argument at line 1, column 10: filter 'link' refuses the URL scheme 'javascript:', which can execute script in the Textile renderer

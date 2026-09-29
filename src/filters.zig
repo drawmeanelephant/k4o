@@ -67,6 +67,7 @@ pub fn apply(
     template: []const u8,
     call: parse.FilterCall,
     input: std.json.Value,
+    root: std.json.Value,
 ) Error!std.json.Value {
     if (!isRegistered(call.name)) {
         return diag.fail(alloc, d, .unknown_filter, template, call.offset, "no filter named \"{s}\"", .{call.name});
@@ -136,12 +137,15 @@ pub fn apply(
     if (std.mem.eql(u8, call.name, "link")) {
         const arg = call.arg orelse
             return badArg(alloc, d, template, call, "filter 'link' requires a URL argument, e.g. link:\"https://example.com/\"", .{});
-        const url = try argText(alloc, arg);
+        const url = try argText(alloc, d, template, call, arg, root);
         if (url.len == 0) return badArg(alloc, d, template, call, "filter 'link' URL must not be empty", .{});
         for (url) |c| {
             if (c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == '"') {
                 return badArg(alloc, d, template, call, "filter 'link' URL must not contain whitespace or a double quote", .{});
             }
+        }
+        if (hasBlockedScheme(url)) {
+            return badArg(alloc, d, template, call, "filter 'link' refuses the URL scheme '{s}:', which can execute script in the Textile renderer", .{schemeName(url)});
         }
         const text = try phraseText(alloc, d, template, call, input);
         if (std.mem.indexOfScalar(u8, text, '"') != null) {
@@ -234,11 +238,68 @@ fn phraseText(
     return text;
 }
 
-fn argText(alloc: std.mem.Allocator, arg: parse.Arg) error{OutOfMemory}![]const u8 {
+/// Schemes that can execute script in whatever renders the Textile. Blocked
+/// because the README's premise is that a downstream Textile parser renders
+/// this output. Navigational schemes (`mailto:`, `ftp:`, `file:`, and relative
+/// paths) are the caller's business and are left alone.
+const blocked_schemes = [_][]const u8{ "javascript", "vbscript", "data" };
+
+/// True when `url` starts with a blocked scheme. The scheme grammar is
+/// `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`, so a colon that is not
+/// preceded by a well-formed scheme belongs to the path, not a scheme, and
+/// `:leading-colon` and `a/b:c` are not treated as schemes.
+fn hasBlockedScheme(url: []const u8) bool {
+    const colon = std.mem.indexOfScalar(u8, url, ':') orelse return false;
+    const scheme = url[0..colon];
+    if (scheme.len == 0 or !std.ascii.isAlphabetic(scheme[0])) return false;
+    for (scheme[1..]) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '+' and c != '-' and c != '.') return false;
+    }
+    for (blocked_schemes) |bad| {
+        if (std.ascii.eqlIgnoreCase(scheme, bad)) return true;
+    }
+    return false;
+}
+
+fn schemeName(url: []const u8) []const u8 {
+    const colon = std.mem.indexOfScalar(u8, url, ':') orelse return url;
+    return url[0..colon];
+}
+
+/// Resolves a filter argument to text.
+///
+/// A quoted or numeric argument is a literal. A *bare* word is looked up in
+/// the data root first, so `link:url` means the value of `url` rather than
+/// the four characters `url`; with no such key it stays a literal, which
+/// preserves the documented bare-word behaviour. Quoting forces the literal
+/// (`link:"url"`).
+fn argText(
+    alloc: std.mem.Allocator,
+    d: *diag.Diagnostic,
+    template: []const u8,
+    call: parse.FilterCall,
+    arg: parse.Arg,
+    root: std.json.Value,
+) Error![]const u8 {
     return switch (arg) {
-        .bare => |s| s,
         .string => |s| s,
         .number => |n| try std.fmt.allocPrint(alloc, "{d}", .{n}),
+        .bare => |name| blk: {
+            const resolved = switch (root) {
+                .object => |obj| obj.get(name),
+                else => null,
+            } orelse break :blk name;
+            break :blk switch (resolved) {
+                .string => |s| s,
+                .number_string => |s| s,
+                .integer => |n| try std.fmt.allocPrint(alloc, "{d}", .{n}),
+                .float => |f| try std.fmt.allocPrint(alloc, "{d}", .{f}),
+                .bool => |b| if (b) "true" else "false",
+                // Null, object and array have no text form, so falling back to
+                // the bare word here would be silent nonsense again.
+                else => badArg(alloc, d, template, call, "filter argument '{s}' resolves to {s}, but filter arguments must be text", .{ name, typeName(resolved) }),
+            };
+        },
     };
 }
 

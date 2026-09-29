@@ -77,7 +77,7 @@ const Interp = struct {
     fn evalOutput(self: *Interp, pl: parse.Pipeline) Error!void {
         var value = try self.resolveExpr(pl.value);
         for (pl.filters) |call| {
-            value = try filters.apply(self.alloc, self.diag, self.template, call, value);
+            value = try filters.apply(self.alloc, self.diag, self.template, call, value, self.root);
         }
         try self.writeValue(value);
     }
