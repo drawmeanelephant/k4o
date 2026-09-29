@@ -161,13 +161,21 @@ zig build test -Dengine-mode=passthrough      # goldbrick: engine returns the te
 zig build test -Dengine-mode=markdown         # wrong dialect: filters emit Markdown -> MUST fail
 ```
 
-Recorded results (Zig 0.16.0, macOS arm64):
+The table below is **generated** by `tools/verify.sh` from a real run and
+re-asserted by CI on every push and pull request: if the committed table ever
+disagrees with what a run actually reports, the build fails. Regenerate it
+locally with `tools/verify.sh --update-readme`.
 
+<!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | all tests pass |
-| `passthrough` | all tests fail (0 passed / 24 failed) |
-| `markdown` | all tests fail (0 passed / 24 failed) |
+| `normal` | 24 passed, 0 failed |
+| `passthrough` | 0 passed, 24 failed |
+| `markdown` | 0 passed, 24 failed |
+<!-- verify-table:end -->
+
+CI runs the same script on `ubuntu-latest` at Zig 0.16.0. The counts are
+platform-independent, which is why one table serves both CI and local runs.
 
 Every test re-asserts Textile-specific syntax (`h1. `, `bq. `, `*bold*`,
 `_italic_`, `"text":url`, `|_. …|`) through a dialect guard, so neither

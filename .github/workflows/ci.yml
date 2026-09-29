@@ -24,8 +24,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pinned by commit SHA (tag v2.2.1-node24). Maintained fork of
+      # mlugg/setup-zig: upstream moved to Codeberg and the GitHub copy has been
+      # stale since v2.2.1 (Jan 2026). The only functional change is
+      # runs.using node20 -> node24, clearing the Actions Node 20 deprecation.
+      # To bump, replace the SHA with the new tag's commit and update the tag
+      # comment.
       - name: Install Zig
-        uses: mlugg/setup-zig@v2
+        uses: drawmeanelephant/setup-zig@0ebfa31d4b441dab390eec35aa3f83e52cd01c05 # v2.2.1-node24
         with:
           version: ${{ matrix.zig }}
 
@@ -37,3 +43,39 @@ jobs:
 
       - name: Test
         run: zig build test --summary all
+
+  verify:
+    # The project's real asset: the red-green mutant modes must FAIL, the CLI
+    # smoke tests and static cross-build must pass, and README's generated
+    # results table must match this run. A mutant that starts passing means the
+    # suite has stopped discriminating, which fails the build here.
+    name: verify (Zig ${{ matrix.zig }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        zig: ["0.16.0"]
+    env:
+      KT_VERIFY_DIR: ${{ github.workspace }}/verify-logs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: drawmeanelephant/setup-zig@0ebfa31d4b441dab390eec35aa3f83e52cd01c05 # v2.2.1-node24
+        with:
+          version: ${{ matrix.zig }}
+
+      - name: zig version
+        run: zig version
+
+      - name: Full verification (mutants must fail)
+        run: tools/verify.sh --check-readme
+
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-logs-zig-${{ matrix.zig }}
+          path: verify-logs/
+          if-no-files-found: ignore
+          retention-days: 7
