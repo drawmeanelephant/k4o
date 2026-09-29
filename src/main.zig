@@ -24,7 +24,8 @@ const usage_text =
     \\
     \\Options:
     \\  --data, -d <file>   JSON object with the template variables
-    \\                      (optional; defaults to {}).
+    \\                      (optional; defaults to {}). The --data=<file>
+    \\                      form is also accepted.
     \\  --help, -h          Show this help.
     \\  --version, -v       Show the version.
     \\
@@ -70,10 +71,17 @@ pub fn main(init: std.process.Init) !u8 {
             if (i >= args.items.len) return usage(init, "missing value for --data");
             if (data_path != null) return usage(init, "duplicate --data");
             data_path = args.items[i];
+        } else if (std.mem.startsWith(u8, arg, "--data=") or std.mem.startsWith(u8, arg, "-d=")) {
+            // `--data=FILE` / `-d=FILE`. The bare `--data` form is matched
+            // above, so this is only reached with an `=` in the argument.
+            const value = arg[std.mem.indexOfScalar(u8, arg, '=').? + 1 ..];
+            if (value.len == 0) return usage(init, "missing value for --data");
+            if (data_path != null) return usage(init, "duplicate --data");
+            data_path = value;
         } else if (arg.len > 1 and arg[0] == '-') {
             return usage(init, "unknown option");
         } else {
-            if (template_path != null) return usage(init, "multiple template files");
+            if (template_path != null) return usage(init, "multiple template files (did you mean --data <file>?)");
             template_path = arg;
         }
     }
