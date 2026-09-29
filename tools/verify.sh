@@ -7,8 +7,7 @@
 #   1. zig build                                          (clean build)
 #   2. zig build test                                     (expects success)
 #   3. zig build test -Dengine-mode=passthrough           (expects failure: goldbrick engine)
-#   4. zig build test -Dengine-mode=markdown              (expects failure: Markdown emission)
-#   5. zig build test -Doptimize=ReleaseSafe              (expects success)
+#   4. zig build test -Dengine-mode=markdown              (expects failure: Markdown emission)#   5. zig build test -Doptimize=ReleaseSafe              (expects success)
 #   6. CLI smoke: the three examples byte-compare, plus error paths
 #      (non-zero exit with empty stdout), --help and --version, the
 #      --data=FILE form with its empty-value and stray-positional errors,
@@ -90,11 +89,23 @@ check_nonzero_tests() { # desc, log, cmd... (expects non-zero AND test failures)
   fi
   local summary
   summary=$(grep -Eo "[0-9]+ pass, [0-9]+ fail \([0-9]+ total\)" "$log" | tail -1)
-  if [ -n "$summary" ]; then
+  if [ -z "$summary" ]; then
+    note "FAIL  $desc (non-zero exit but no test summary — build error?)"
+    tail -n 15 "$log" | sed 's/^/      | /'
+    fail_count=$((fail_count + 1))
+    return
+  fi
+  # The suite's whole claim is that EVERY test fails against a degraded
+  # engine. A non-zero exit is not enough: one test that survives the mutant
+  # means it never exercises the engine, and it will quietly weaken the
+  # evidence for the other 39. Require zero survivors.
+  local survivors
+  survivors=$(printf '%s' "$summary" | grep -Eo '^[0-9]+')
+  if [ "$survivors" -eq 0 ]; then
     note "PASS  $desc (exit=$rc; $summary)"
     pass_count=$((pass_count + 1))
   else
-    note "FAIL  $desc (non-zero exit but no test summary — build error?)"
+    note "FAIL  $desc (exit=$rc; $summary — $survivors test(s) passed against the degraded engine)"
     tail -n 15 "$log" | sed 's/^/      | /'
     fail_count=$((fail_count + 1))
   fi

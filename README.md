@@ -292,8 +292,8 @@ locally with `tools/verify.sh --update-readme`.
 | Mode | Result |
 | --- | --- |
 | `normal` | 40 passed, 0 failed |
-| `passthrough` | 1 passed, 39 failed |
-| `markdown` | 1 passed, 39 failed |
+| `passthrough` | 0 passed, 40 failed |
+| `markdown` | 0 passed, 40 failed |
 <!-- verify-table:end -->
 
 CI runs the same script on `ubuntu-latest` at Zig 0.16.0. The counts are

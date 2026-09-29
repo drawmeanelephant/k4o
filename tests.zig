@@ -452,8 +452,11 @@ test "unit: structured values are charged against the output cap" {
     try renderLimitErr("{{ data }}", "{\"data\":{\"k\":1}}", 4, "output exceeded the 4 byte limit");
 }
 
-test "unit: the output cap does not fire on ordinary renders" {
-    // The default cap is generous; every corpus-sized render must clear it.
+test "unit: the default cap is generous enough for ordinary renders" {
+    // This must render something. A bare constant assertion would pass under
+    // -Dengine-mode=passthrough, and every test in this file is supposed to
+    // fail against the degraded engine.
+    try renderOk("{{ a }} {{ b | bold }}", "{\"a\":\"x\",\"b\":\"y\"}", "x *y*");
     try testing.expect(kt.default_max_output > 1024 * 1024);
 }
 
