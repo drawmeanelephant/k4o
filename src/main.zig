@@ -26,6 +26,11 @@ const usage_text =
     \\  --data, -d <file>   JSON object with the template variables
     \\                      (optional; defaults to {}). The --data=<file>
     \\                      form is also accepted.
+    \\  --max-output, -m <bytes>
+    \\                      Ceiling on rendered output, in bytes. Nested
+    \\                      loops multiply, so a small template over modest
+    \\                      data can ask for far more than you expect.
+    \\                      Default 268435456 (256 MiB); 0 means no limit.
     \\  --help, -h          Show this help.
     \\  --version, -v       Show the version.
     \\
@@ -60,6 +65,7 @@ pub fn main(init: std.process.Init) !u8 {
 
     var template_path: ?[]const u8 = null;
     var data_path: ?[]const u8 = null;
+    var max_output: usize = kt.default_max_output;
     var i: usize = 1;
     while (i < args.items.len) : (i += 1) {
         const arg = args.items[i];
@@ -78,6 +84,20 @@ pub fn main(init: std.process.Init) !u8 {
             if (value.len == 0) return usage(init, "missing value for --data");
             if (data_path != null) return usage(init, "duplicate --data");
             data_path = value;
+        } else if (std.mem.eql(u8, arg, "--max-output") or std.mem.eql(u8, arg, "-m")) {
+            i += 1;
+            if (i >= args.items.len) return usage(init, "missing value for --max-output");
+            max_output = parseSize(args.items[i]) catch |e| return usage(init, switch (e) {
+                error.NotANumber => "invalid value for --max-output: not a number",
+                error.Negative => "invalid value for --max-output: must not be negative",
+            });
+        } else if (std.mem.startsWith(u8, arg, "--max-output=") or std.mem.startsWith(u8, arg, "-m=")) {
+            const value = arg[std.mem.indexOfScalar(u8, arg, '=').? + 1 ..];
+            if (value.len == 0) return usage(init, "missing value for --max-output");
+            max_output = parseSize(value) catch |e| return usage(init, switch (e) {
+                error.NotANumber => "invalid value for --max-output: not a number",
+                error.Negative => "invalid value for --max-output: must not be negative",
+            });
         } else if (arg.len > 1 and arg[0] == '-') {
             return usage(init, "unknown option");
         } else {
@@ -112,7 +132,7 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     var d = kt.Diagnostic{};
-    const out = kt.render(arena, template, root, &d) catch |e| switch (e) {
+    const out = kt.renderWithLimit(arena, template, root, &d, max_output) catch |e| switch (e) {
         error.Template => {
             report("{s}", .{if (d.message.len > 0) d.message else "template error"});
             return 1;
@@ -130,6 +150,33 @@ pub fn main(init: std.process.Init) !u8 {
     w.interface.writeAll(out) catch return 1;
     w.flush() catch return 1;
     return 0;
+}
+
+/// Parses a byte count, accepting a `k`/`m`/`g` suffix (case-insensitive).
+fn parseSize(text: []const u8) error{ NotANumber, Negative }!usize {
+    if (text.len == 0) return error.NotANumber;
+    var digits = text;
+    var scale: usize = 1;
+    switch (std.ascii.toLower(text[text.len - 1])) {
+        'k' => {
+            digits = text[0 .. text.len - 1];
+            scale = 1024;
+        },
+        'm' => {
+            digits = text[0 .. text.len - 1];
+            scale = 1024 * 1024;
+        },
+        'g' => {
+            digits = text[0 .. text.len - 1];
+            scale = 1024 * 1024 * 1024;
+        },
+        else => {},
+    }
+    if (digits.len == 0) return error.NotANumber;
+    if (digits[0] == '-') return error.Negative;
+    const n = std.fmt.parseInt(u64, digits, 10) catch return error.NotANumber;
+    const scaled = std.math.mul(u64, n, scale) catch return error.NotANumber;
+    return std.math.cast(usize, scaled) orelse error.NotANumber;
 }
 
 fn printStdout(init: std.process.Init, text: []const u8) !void {

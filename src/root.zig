@@ -14,4 +14,6 @@ pub const engine = @import("engine.zig");
 
 pub const Diagnostic = diag.Diagnostic;
 pub const render = engine.render;
+pub const renderWithLimit = engine.renderWithLimit;
+pub const default_max_output = engine.default_max_output;
 pub const Error = engine.Error;

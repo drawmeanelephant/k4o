@@ -39,6 +39,8 @@ zig-out/bin/knap-textile --version
 - `--data` is optional; without it the variables default to `{}`. Both
   `--data FILE` and `--data=FILE` are accepted (and `-d` / `-d=FILE`); a bare
   second positional is an error that suggests `--data`.
+- `--max-output` (or `-m`) caps rendered output; see
+  [Output size](#output-size). Defaults to 256 MiB; `0` means no cap.
 - Exit codes: `0` on success, `1` on any error. The message goes to stderr and
   stdout stays empty — rendering is buffered, so partially rendered output is
   never emitted.
@@ -56,7 +58,7 @@ documentation (see the clean-room record below):
 | Literals | `{{ "text" }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}` | Usable as values and as condition operands. |
 | Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. `==`/`!=` compare the whole value structurally, so objects and arrays work and key order does not matter; `<`/`<=`/`>`/`>=` are numbers and strings only. |
 | Truthiness | — | `false`, `null`, missing values, `""`, `0`, and `[]` are false; everything else true. |
-| Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Iterating a non-array is a render error. |
+| Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Iterating a non-array is a render error. **Nested loops multiply** — see [Output size](#output-size). |
 | Comments | `{# … #}` | Single- or multi-line; removed from the output; never evaluated; unclosed is a syntax error. |
 | Missing values | — | Render as empty text; are false in conditions. |
 
@@ -150,6 +152,34 @@ produce Textile for a downstream parser, so a scheme that executes in that
 parser is refused at the point it is written rather than shipped. If your
 input is trusted and you need one of the refused schemes anyway, this is a
 deliberate limit, not an oversight.
+
+### Output size
+
+**Nested loops multiply.** A loop over an array of length *N* runs its body
+*N* times, so *L* nested loops over arrays of length *N* render *N<sup>L</sup>*
+times. Three nested loops over 300-element arrays is 27 million iterations
+from a three-line template, and a fourth level would need about 72 billion.
+Output grows as the product, which makes it exponential from the point of
+view of anyone writing the template.
+
+The CLI bounds this with an output cap, default 256 MiB, that fails with a
+diagnostic naming the loop depth rather than exhausting memory:
+
+```sh
+knap-textile render t.knap --data d.json --max-output=64m
+```
+
+`--max-output` accepts plain bytes or a `k`/`m`/`g` suffix, in both
+`--max-output=64m` and `--max-output 64m` form; `-m` is the short spelling.
+Pass `--max-output=0` to remove the cap entirely, which is occasionally
+wanted for a deliberately huge render.
+
+The cap is enforced in the engine rather than the CLI, so the library API
+gets it too: `render` uses the default and `renderWithLimit` takes an
+explicit byte count. Because the check is a budget charged per write, it
+trips the instant the limit is crossed instead of after the allocator is
+exhausted — a small cap fails in milliseconds where the old behaviour took
+seconds to produce hundreds of megabytes first.
 
 ## Filter registry → Textile mapping
 
@@ -261,9 +291,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 35 passed, 0 failed |
-| `passthrough` | 0 passed, 35 failed |
-| `markdown` | 0 passed, 35 failed |
+| `normal` | 40 passed, 0 failed |
+| `passthrough` | 1 passed, 39 failed |
+| `markdown` | 1 passed, 39 failed |
 <!-- verify-table:end -->
 
 CI runs the same script on `ubuntu-latest` at Zig 0.16.0. The counts are

@@ -13,6 +13,15 @@ pub const Error = error{ Template, OutOfMemory };
 
 const passthrough_mode = std.mem.eql(u8, build_options.engine_mode, "passthrough");
 
+/// Default ceiling on rendered output, in bytes.
+///
+/// Nested loops multiply: L nested loops over arrays of length N render N^L
+/// times, so a short template over modest data can ask for gigabytes. This
+/// bounds that with a clear diagnostic instead of letting the arena allocator
+/// run out after minutes of work. Override with `renderWithLimit`, or from
+/// the CLI with `--max-output`.
+pub const default_max_output: usize = 256 * 1024 * 1024;
+
 /// Renders `template` with `data` (a JSON object whose properties are the
 /// variables) and returns the rendered bytes, allocated with `alloc`.
 pub fn render(
@@ -20,6 +29,17 @@ pub fn render(
     template: []const u8,
     data: std.json.Value,
     d: *diag.Diagnostic,
+) Error![]const u8 {
+    return renderWithLimit(alloc, template, data, d, default_max_output);
+}
+
+/// As `render`, but caps the output at `max_output` bytes. Pass 0 for no cap.
+pub fn renderWithLimit(
+    alloc: std.mem.Allocator,
+    template: []const u8,
+    data: std.json.Value,
+    d: *diag.Diagnostic,
+    max_output: usize,
 ) Error![]const u8 {
     if (passthrough_mode) {
         // Red-verification mutant: a goldbrick engine that returns the
@@ -36,6 +56,7 @@ pub fn render(
         .diag = d,
         .out = &out.writer,
         .root = data,
+        .max_output = max_output,
     };
     try interp.evalNodes(doc.nodes);
     return out.written();
@@ -45,6 +66,7 @@ const LoopFrame = struct {
     name: []const u8,
     items: []const std.json.Value,
     index: usize,
+    offset: usize,
 };
 
 const Interp = struct {
@@ -54,13 +76,40 @@ const Interp = struct {
     out: *std.Io.Writer,
     root: std.json.Value,
     loops: std.ArrayList(LoopFrame) = .empty,
+    max_output: usize,
+    written: usize = 0,
+
+    /// Charges `add` bytes against the output budget. Every byte reaches the
+    /// output through here, so the cap trips at the moment it is crossed
+    /// rather than when the allocator is exhausted.
+    fn charge(self: *Interp, add: usize) Error!void {
+        if (self.max_output == 0) return;
+        const next = self.written + add;
+        if (next > self.max_output) {
+            const depth = self.loops.items.len;
+            const offset = if (depth > 0) self.loops.items[depth - 1].offset else 0;
+            return diag.fail(
+                self.alloc,
+                self.diag,
+                .render,
+                self.template,
+                offset,
+                "output exceeded the {d} byte limit at loop depth {d} after {d} bytes already written: nested loops multiply, so check the loop nesting (currently {d} deep)",
+                .{ self.max_output, depth, self.written, depth },
+            );
+        }
+        self.written = next;
+    }
 
     fn put(self: *Interp, bytes: []const u8) Error!void {
+        try self.charge(bytes.len);
         self.out.writeAll(bytes) catch return error.OutOfMemory;
     }
 
     fn putFmt(self: *Interp, comptime fmt: []const u8, args: anytype) Error!void {
-        self.out.print(fmt, args) catch return error.OutOfMemory;
+        var buf: [64]u8 = undefined;
+        const text = std.fmt.bufPrint(&buf, fmt, args) catch return error.OutOfMemory;
+        try self.put(text);
     }
 
     fn evalNodes(self: *Interp, nodes: []const parse.Node) Error!void {
@@ -114,6 +163,7 @@ const Interp = struct {
             .name = ln.var_name,
             .items = arr.items,
             .index = 0,
+            .offset = ln.offset,
         });
         defer _ = self.loops.pop();
         var i: usize = 0;
@@ -211,7 +261,13 @@ const Interp = struct {
             .float => |f| try self.putFmt("{d}", .{f}),
             .number_string => |s| try self.put(s),
             .string => |s| try self.put(s),
-            .array, .object => std.json.Stringify.value(v, .{}, self.out) catch return error.OutOfMemory,
+            .array, .object => {
+                // Buffer then `put`, so structured values are charged against
+                // the output budget instead of writing straight past it.
+                var buf: std.Io.Writer.Allocating = .init(self.alloc);
+                std.json.Stringify.value(v, .{}, &buf.writer) catch return error.OutOfMemory;
+                try self.put(buf.written());
+            },
         }
     }
 };

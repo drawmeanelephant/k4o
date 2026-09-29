@@ -10,8 +10,9 @@
 #   4. zig build test -Dengine-mode=markdown              (expects failure: Markdown emission)
 #   5. zig build test -Doptimize=ReleaseSafe              (expects success)
 #   6. CLI smoke: the three examples byte-compare, plus error paths
-#      (non-zero exit with empty stdout), --help and --version, and the
-#      --data=FILE form with its empty-value and stray-positional errors
+#      (non-zero exit with empty stdout), --help and --version, the
+#      --data=FILE form with its empty-value and stray-positional errors,
+#      and the --max-output cap tripping on an amplifying render
 #   7. static cross-build for x86_64-linux-musl (file(1): "statically linked")
 #
 # Logs are written under $KT_VERIFY_DIR (default: a unique directory in
@@ -163,6 +164,27 @@ check_cli_stderr "CLI rejects an empty --data= value" "$VERIFY_DIR/16-data-empty
   "missing value for --data" "$BIN" render "$REPO/examples/heading.knap" "--data="
 check_cli_stderr "a second positional suggests --data" "$VERIFY_DIR/17-second-positional" \
   "did you mean --data" "$BIN" render "$REPO/examples/heading.knap" "$REPO/examples/heading.json"
+
+# Nested loops multiply: 200 * 200 iterations of a two-byte body is ~80k
+# bytes, so a 100-byte cap must trip immediately with a diagnostic that names
+# the loop depth rather than dying on an allocator OOM.
+AMP_TPL="$VERIFY_DIR/18-amp.knap"
+AMP_JSON="$VERIFY_DIR/18-amp.json"
+printf '{%% for x in a %%}{%% for y in a %%}{{ x }}{%% endfor %%}{%% endfor %%}' >"$AMP_TPL"
+_amp_items=""
+_i=0
+while [ "$_i" -lt 200 ]; do
+  _amp_items="${_amp_items:+$_amp_items,}$_i"
+  _i=$((_i + 1))
+done
+printf '{"a":[%s]}' "$_amp_items" >"$AMP_JSON"
+
+check_cli_stderr "the output cap fails an amplifying render" "$VERIFY_DIR/18-amp" \
+  "output exceeded the 100 byte limit at loop depth 2" "$BIN" render "$AMP_TPL" --data "$AMP_JSON" --max-output=100
+check_cli_stderr "an invalid --max-output is rejected" "$VERIFY_DIR/19-bad-max" \
+  "not a number" "$BIN" render "$REPO/examples/heading.knap" --data "$REPO/examples/heading.json" --max-output=abc
+check_zero "--max-output accepts a suffixed size" "$VERIFY_DIR/20-max-suffix.log" \
+  bash -c "'$BIN' render '$REPO/examples/heading.knap' --data='$REPO/examples/heading.json' --max-output=1m | cmp -s - '$REPO/examples/heading.textile'"
 
 check_zero "--help exits 0" "$VERIFY_DIR/12-help.log" "$BIN" --help
 check_zero "--version exits 0" "$VERIFY_DIR/13-version.log" "$BIN" --version

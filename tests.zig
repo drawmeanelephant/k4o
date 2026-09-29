@@ -148,6 +148,50 @@ fn renderErr(template: []const u8, data_json: []const u8, needle: []const u8) !v
     try assertTextileDialect();
 }
 
+fn renderLimit(
+    template: []const u8,
+    data_json: []const u8,
+    max: usize,
+    d: *kt.Diagnostic,
+    arena: std.mem.Allocator,
+) ![]const u8 {
+    const parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, data_json, .{});
+    return kt.renderWithLimit(arena, template, parsed, d, max);
+}
+
+fn renderLimitOk(template: []const u8, data_json: []const u8, max: usize, expected: []const u8) !void {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    var d = kt.Diagnostic{};
+    const out = try renderLimit(template, data_json, max, &d, arena_state.allocator());
+    testing.expectEqualStrings(expected, out) catch |e| {
+        std.debug.print("render mismatch\n--- expected ---\n{s}\n--- actual ---\n{s}\n---\n", .{ expected, out });
+        return e;
+    };
+    try assertTextileDialect();
+}
+
+fn renderLimitErr(template: []const u8, data_json: []const u8, max: usize, needle: []const u8) !void {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    var d = kt.Diagnostic{};
+    const res = renderLimit(template, data_json, max, &d, arena_state.allocator());
+    if (res) |out| {
+        std.debug.print("expected error, got output:\n{s}\n", .{out});
+        return error.TestExpectedError;
+    } else |e| {
+        if (e != error.Template) {
+            std.debug.print("expected error.Template, got {s}\n", .{@errorName(e)});
+            return e;
+        }
+    }
+    if (std.mem.indexOf(u8, d.message, needle) == null) {
+        std.debug.print("message mismatch\n--- wanted (substring) ---\n{s}\n--- got ---\n{s}\n", .{ needle, d.message });
+        return error.TestUnexpectedResult;
+    }
+    try assertTextileDialect();
+}
+
 /// One render through the Textile pipeline; fails under both mutants.
 /// Called from `renderOk`/`renderErr`, so every test in this file
 /// re-asserts the dialect and cannot pass while the engine is degraded.
@@ -379,6 +423,38 @@ test "unit: blocked link schemes are rejected case-insensitively" {
 
 test "unit: a blocked scheme reaching link through the data is rejected" {
     try renderErr("{{ name | link:url }}", "{\"name\":\"c\",\"url\":\"javascript:alert(1)\"}", "which can execute script");
+}
+
+test "unit: nested loops that would multiply hit the output cap" {
+    // 20 * 20 = 400 one-byte iterations, so a 100-byte cap must trip.
+    const tpl = "{% for x in a %}{% for y in a %}x{% endfor %}{% endfor %}";
+    try renderLimitErr(
+        tpl,
+        "{\"a\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19]}",
+        100,
+        "output exceeded the 100 byte limit at loop depth 2",
+    );
+}
+
+test "unit: the output cap is an exact ceiling" {
+    try renderLimitOk("{{ s }}", "{\"s\":\"hello\"}", 5, "hello");
+    try renderLimitErr("{{ s }}", "{\"s\":\"hello\"}", 4, "output exceeded the 4 byte limit");
+}
+
+test "unit: a zero output limit disables the cap" {
+    try renderLimitOk("{{ s }}", "{\"s\":\"hello\"}", 0, "hello");
+}
+
+test "unit: structured values are charged against the output cap" {
+    // `{{ data }}` emits compact JSON through a separate write path; it must
+    // still be charged, or the cap has a hole.
+    try renderLimitOk("{{ data }}", "{\"data\":{\"k\":1}}", 100, "{\"k\":1}");
+    try renderLimitErr("{{ data }}", "{\"data\":{\"k\":1}}", 4, "output exceeded the 4 byte limit");
+}
+
+test "unit: the output cap does not fire on ordinary renders" {
+    // The default cap is generous; every corpus-sized render must clear it.
+    try testing.expect(kt.default_max_output > 1024 * 1024);
 }
 
 test "unit: spaced names are not valid condition operands" {
