@@ -22,7 +22,7 @@ jobs:
       matrix:
         zig: ["0.16.0"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Pinned by commit SHA (tag v2.2.1-node24). Maintained fork of
       # mlugg/setup-zig: upstream moved to Codeberg and the GitHub copy has been
@@ -58,7 +58,7 @@ jobs:
     env:
       KT_VERIFY_DIR: ${{ github.workspace }}/verify-logs
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Zig
         uses: drawmeanelephant/setup-zig@0ebfa31d4b441dab390eec35aa3f83e52cd01c05 # v2.2.1-node24
@@ -73,7 +73,7 @@ jobs:
 
       - name: Upload verification logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verify-logs-zig-${{ matrix.zig }}
           path: verify-logs/
