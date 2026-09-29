@@ -239,7 +239,21 @@ fn truthy(v: std.json.Value) bool {
     };
 }
 
+/// Guard on structural comparison. `std.json` parsing already bounds nesting,
+/// but values built by the engine (loop objects) are not depth-checked, so this
+/// keeps equality from becoming unbounded recursion.
+const max_compare_depth: u32 = 128;
+
+/// Equality over the whole value tree. Arrays and objects compare
+/// structurally, so a value is always equal to itself and two objects are equal
+/// regardless of key order. Used by `==`/`!=` and by `contains` when the
+/// haystack is an array.
 fn valueEq(a: std.json.Value, b: std.json.Value) bool {
+    return valueEqDepth(a, b, 0);
+}
+
+fn valueEqDepth(a: std.json.Value, b: std.json.Value, depth: u32) bool {
+    if (depth > max_compare_depth) return false;
     return switch (a) {
         .null => switch (b) {
             .null => true,
@@ -269,7 +283,30 @@ fn valueEq(a: std.json.Value, b: std.json.Value) bool {
             .number_string => |y| std.mem.eql(u8, x, y),
             else => false,
         },
-        .array, .object => false,
+        .array => |x| switch (b) {
+            .array => |y| blk: {
+                if (x.items.len != y.items.len) break :blk false;
+                for (x.items, y.items) |xi, yi| {
+                    if (!valueEqDepth(xi, yi, depth + 1)) break :blk false;
+                }
+                break :blk true;
+            },
+            else => false,
+        },
+        .object => |x| switch (b) {
+            // Key order is not significant: look each key up in the other map
+            // rather than walking both in step.
+            .object => |y| blk: {
+                if (x.count() != y.count()) break :blk false;
+                var it = x.iterator();
+                while (it.next()) |entry| {
+                    const other = y.get(entry.key_ptr.*) orelse break :blk false;
+                    if (!valueEqDepth(entry.value_ptr.*, other, depth + 1)) break :blk false;
+                }
+                break :blk true;
+            },
+            else => false,
+        },
     };
 }
 

@@ -54,6 +54,12 @@ const cases = [_]Case{
     .{ .name = "logic-truthiness", .template = @embedFile("fixtures/logic-truthiness.knap"), .data = @embedFile("fixtures/logic-truthiness.json"), .expected = @embedFile("fixtures/logic-truthiness.textile") },
     .{ .name = "logic-contains-string", .template = @embedFile("fixtures/logic-contains-string.knap"), .data = @embedFile("fixtures/logic-contains-string.json"), .expected = @embedFile("fixtures/logic-contains-string.textile") },
     .{ .name = "logic-contains-array", .template = @embedFile("fixtures/logic-contains-array.knap"), .data = @embedFile("fixtures/logic-contains-array.json"), .expected = @embedFile("fixtures/logic-contains-array.textile") },
+    .{ .name = "logic-contains-object", .template = @embedFile("fixtures/logic-contains-object.knap"), .data = @embedFile("fixtures/logic-contains-object.json"), .expected = @embedFile("fixtures/logic-contains-object.textile") },
+    .{ .name = "logic-eq-reflexive", .template = @embedFile("fixtures/logic-eq-reflexive.knap"), .data = @embedFile("fixtures/logic-eq-reflexive.json"), .expected = @embedFile("fixtures/logic-eq-reflexive.textile") },
+    .{ .name = "logic-eq-object-order", .template = @embedFile("fixtures/logic-eq-object-order.knap"), .data = @embedFile("fixtures/logic-eq-object-order.json"), .expected = @embedFile("fixtures/logic-eq-object-order.textile") },
+    .{ .name = "logic-eq-array-nested", .template = @embedFile("fixtures/logic-eq-array-nested.knap"), .data = @embedFile("fixtures/logic-eq-array-nested.json"), .expected = @embedFile("fixtures/logic-eq-array-nested.textile") },
+    .{ .name = "logic-eq-length-mismatch", .template = @embedFile("fixtures/logic-eq-length-mismatch.knap"), .data = @embedFile("fixtures/logic-eq-length-mismatch.json"), .expected = @embedFile("fixtures/logic-eq-length-mismatch.textile") },
+    .{ .name = "logic-neq-object", .template = @embedFile("fixtures/logic-neq-object.knap"), .data = @embedFile("fixtures/logic-neq-object.json"), .expected = @embedFile("fixtures/logic-neq-object.textile") },
     .{ .name = "logic-and-or-parens", .template = @embedFile("fixtures/logic-and-or-parens.knap"), .data = @embedFile("fixtures/logic-and-or-parens.json"), .expected = @embedFile("fixtures/logic-and-or-parens.textile") },
     .{ .name = "logic-not", .template = @embedFile("fixtures/logic-not.knap"), .data = @embedFile("fixtures/logic-not.json"), .expected = @embedFile("fixtures/logic-not.textile") },
     .{ .name = "loop-basic", .template = @embedFile("fixtures/loop-basic.knap"), .data = @embedFile("fixtures/loop-basic.json"), .expected = @embedFile("fixtures/loop-basic.textile") },
@@ -256,6 +262,43 @@ test "unit: ordered comparison and numeric equality" {
     try renderOk("{% if price >= 100 %}big{% else %}small{% endif %}", "{\"price\":42.57}", "small");
     try renderOk("{% if price >= 100 %}big{% else %}small{% endif %}", "{\"price\":100}", "big");
     try renderOk("{% if n == 2 %}eq{% else %}ne{% endif %}", "{\"n\":2.0}", "eq");
+}
+
+test "unit: non-scalar equality is reflexive" {
+    try renderOk("{% if x == x %}EQ{% else %}NEQ{% endif %}", "{\"x\":{\"k\":1}}", "EQ");
+    try renderOk("{% if x == x %}EQ{% else %}NEQ{% endif %}", "{\"x\":[1,[2]]}", "EQ");
+    try renderOk("{% if x == x %}EQ{% else %}NEQ{% endif %}", "{\"x\":{}}", "EQ");
+    try renderOk("{% if x == x %}EQ{% else %}NEQ{% endif %}", "{\"x\":[]}", "EQ");
+}
+
+test "unit: object equality ignores key order" {
+    try renderOk("{% if a == b %}EQ{% else %}NEQ{% endif %}", "{\"a\":{\"p\":1,\"q\":2},\"b\":{\"q\":2,\"p\":1}}", "EQ");
+    // An extra key, not just a reordered one, must still compare unequal.
+    try renderOk("{% if a == b %}EQ{% else %}NEQ{% endif %}", "{\"a\":{\"p\":1},\"b\":{\"p\":1,\"q\":2}}", "NEQ");
+}
+
+test "unit: comparison across kinds is not equality" {
+    try renderOk("{% if a == b %}EQ{% else %}NEQ{% endif %}", "{\"a\":{},\"b\":[]}", "NEQ");
+    try renderOk("{% if a == b %}EQ{% else %}NEQ{% endif %}", "{\"a\":{\"k\":1},\"b\":\"{\\\"k\\\":1}\"}", "NEQ");
+    try renderOk("{% if a != b %}NEQ{% else %}EQ{% endif %}", "{\"a\":{\"k\":1},\"b\":{\"k\":1}}", "EQ");
+}
+
+test "unit: contains matches object members structurally" {
+    try renderOk(
+        "{% if items contains needle %}hit{% else %}miss{% endif %}",
+        "{\"items\":[{\"k\":1},{\"k\":2}],\"needle\":{\"k\":2}}",
+        "hit",
+    );
+    try renderOk(
+        "{% if items contains needle %}hit{% else %}miss{% endif %}",
+        "{\"items\":[{\"k\":1}],\"needle\":{\"k\":9}}",
+        "miss",
+    );
+}
+
+test "unit: nested containers compare element-wise" {
+    try renderOk("{% if a == b %}EQ{% else %}NEQ{% endif %}", "{\"a\":[[1,2]],\"b\":[[1,2]]}", "EQ");
+    try renderOk("{% if a == b %}EQ{% else %}NEQ{% endif %}", "{\"a\":[[1,2]],\"b\":[[1,3]]}", "NEQ");
 }
 
 test "unit: bang negation" {

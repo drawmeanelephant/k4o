@@ -47,11 +47,11 @@ documentation (see the clean-room record below):
 
 | Construct | Syntax | Notes |
 | --- | --- | --- |
-| Interpolation | `{{ title }}` | Whitespace optional (`{{title}}`). |
+| Interpolation | `{{ title }}` | Whitespace optional (`{{title}}`). A value resolving to an object or array renders as compact JSON — see [Structured values](#structured-values). |
 | Paths | `{{ author.name }}`, `{{ authors[0].name }}`, `{{ metadata["article:section"] }}` | Dotted properties and bracket access with a number or a quoted key. Names may contain spaces in interpolation (`{{ First name }}`). |
 | Filters | `{{ value \| filter }}`, `{{ value \| filter:arg }}` | Chains run left to right: `{{ name \| italic \| h2 }}`. At most one argument (bare word, quoted string, or number). |
 | Literals | `{{ "text" }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}` | Usable as values and as condition operands. |
-| Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. |
+| Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. `==`/`!=` compare the whole value structurally, so objects and arrays work and key order does not matter; `<`/`<=`/`>`/`>=` are numbers and strings only. |
 | Truthiness | — | `false`, `null`, missing values, `""`, `0`, and `[]` are false; everything else true. |
 | Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Iterating a non-array is a render error. |
 | Comments | `{# … #}` | Single- or multi-line; removed from the output; never evaluated; unclosed is a syntax error. |
@@ -61,6 +61,44 @@ Whitespace notes: one newline immediately following an opening tag
 (`{% if %}`, `{% elseif %}`, `{% else %}`, `{% for %}`) is consumed once, so
 branches and loop bodies join naturally; the newline before a closing tag is
 preserved — place it deliberately.
+
+### Structured values
+
+Two rules cover values that are not plain text.
+
+**Comparing them.** `==` and `!=` are structural, not scalar-only. Arrays and
+objects are compared member by member, recursively, so a value always equals
+itself and two objects are equal regardless of key order:
+
+```text
+{% if a == b %}same{% else %}different{% endif %}   {# {"a":{"p":1,"q":2},"b":{"q":2,"p":1}} -> same #}
+```
+
+`contains` uses the same comparison when the haystack is an array, so
+`{% if items contains needle %}` matches an object member. Comparing across
+different kinds is simply not equal: `{} == []` is false, and an object never
+equals its own JSON text.
+
+**Interpolating them.** An `{{ ... }}` that resolves to an object or array
+emits compact JSON rather than Textile:
+
+```text
+{{ data }}
+```
+
+with `{"data":{"k":1,"s":"x"}}` emits `{"k":1,"s":"x"}`. This matches Knap's
+behaviour for structured values and is pinned by the `var-json-object`
+fixture. Key order is preserved from the input, so two inputs that are
+semantically equal but serialise differently produce different bytes.
+
+Reach for the field you want rather than the container: `{{ data.k }}` renders
+`1`, and `{{ items | list }}` renders Textile. The JSON form is a deliberate
+escape hatch, not the recommended way to emit prose.
+
+Floats are the one place where interpolation is lossy: `{"a":2.0}` renders as
+`2`, so a float and an integer are indistinguishable in the output. Use
+`{{ a }}` for display and compare with `==` when the distinction matters —
+`{% if a == 2 %}` is true for both `2` and `2.0`.
 
 ## Filter registry → Textile mapping
 
@@ -169,9 +207,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 24 passed, 0 failed |
-| `passthrough` | 0 passed, 24 failed |
-| `markdown` | 0 passed, 24 failed |
+| `normal` | 29 passed, 0 failed |
+| `passthrough` | 0 passed, 29 failed |
+| `markdown` | 0 passed, 29 failed |
 <!-- verify-table:end -->
 
 CI runs the same script on `ubuntu-latest` at Zig 0.16.0. The counts are
