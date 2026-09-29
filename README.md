@@ -29,13 +29,16 @@ tools/verify.sh                 # build + tests + red-green mutants + CLI smoke 
 
 ```sh
 zig-out/bin/knap-textile render template.knap --data data.json
+zig-out/bin/knap-textile render template.knap --data=data.json
 zig-out/bin/knap-textile --help
 zig-out/bin/knap-textile --version
 ```
 
 - `render` writes the rendered Textile to stdout, exit 0. No trailing newline
   is added: the output bytes are exactly the rendered template.
-- `--data` is optional; without it the variables default to `{}`.
+- `--data` is optional; without it the variables default to `{}`. Both
+  `--data FILE` and `--data=FILE` are accepted (and `-d` / `-d=FILE`); a bare
+  second positional is an error that suggests `--data`.
 - Exit codes: `0` on success, `1` on any error. The message goes to stderr and
   stdout stays empty — rendering is buffered, so partially rendered output is
   never emitted.

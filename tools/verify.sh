@@ -10,7 +10,8 @@
 #   4. zig build test -Dengine-mode=markdown              (expects failure: Markdown emission)
 #   5. zig build test -Doptimize=ReleaseSafe              (expects success)
 #   6. CLI smoke: the three examples byte-compare, plus error paths
-#      (non-zero exit with empty stdout), --help and --version
+#      (non-zero exit with empty stdout), --help and --version, and the
+#      --data=FILE form with its empty-value and stray-positional errors
 #   7. static cross-build for x86_64-linux-musl (file(1): "statically linked")
 #
 # Logs are written under $KT_VERIFY_DIR (default: a unique directory in
@@ -114,6 +115,21 @@ check_cli_error() { # desc, logbase, cmd... (expects non-zero exit AND empty std
   fi
 }
 
+check_cli_stderr() { # desc, logbase, needle, cmd... (expects non-zero, empty stdout, needle on stderr)
+  local desc="$1" logbase="$2" needle="$3"
+  shift 3
+  local rc=0
+  "$@" >"$logbase.out" 2>"$logbase.err" || rc=$?
+  if [ "$rc" -ne 0 ] && [ ! -s "$logbase.out" ] && grep -qF "$needle" "$logbase.err"; then
+    note "PASS  $desc"
+    pass_count=$((pass_count + 1))
+  else
+    note "FAIL  $desc (exit=$rc, stdout bytes=$(wc -c <"$logbase.out"))"
+    tail -n 5 "$logbase.err" | sed 's/^/      | /'
+    fail_count=$((fail_count + 1))
+  fi
+}
+
 BIN="$REPO/zig-out/bin/knap-textile"
 
 check_zero "zig build" "$VERIFY_DIR/01-build.log" "$ZIG" build
@@ -140,6 +156,13 @@ check_cli_error "error path: missing data file" "$VERIFY_DIR/09-missing-data" \
 check_cli_error "error path: malformed JSON data" "$VERIFY_DIR/10-bad-data" \
   "$BIN" render "$REPO/examples/heading.knap" --data "$REPO/fixtures/errors/bad-data.json"
 check_cli_error "error path: no arguments" "$VERIFY_DIR/11-no-args" "$BIN"
+
+check_zero "CLI accepts --data=FILE" "$VERIFY_DIR/15-data-equals.log" \
+  bash -c "cd '$REPO' && '$BIN' render 'examples/heading.knap' --data='examples/heading.json' | cmp -s - 'examples/heading.textile'"
+check_cli_stderr "CLI rejects an empty --data= value" "$VERIFY_DIR/16-data-empty" \
+  "missing value for --data" "$BIN" render "$REPO/examples/heading.knap" "--data="
+check_cli_stderr "a second positional suggests --data" "$VERIFY_DIR/17-second-positional" \
+  "did you mean --data" "$BIN" render "$REPO/examples/heading.knap" "$REPO/examples/heading.json"
 
 check_zero "--help exits 0" "$VERIFY_DIR/12-help.log" "$BIN" --help
 check_zero "--version exits 0" "$VERIFY_DIR/13-version.log" "$BIN" --version
