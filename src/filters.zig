@@ -468,7 +468,7 @@ fn escapeUrl(alloc: std.mem.Allocator, url: []const u8) error{OutOfMemory}![]u8 
     errdefer out.deinit(alloc);
     for (url) |c| {
         switch (c) {
-            '(' , ')', '\\' => try out.append(alloc, '\\'),
+            '(', ')', '\\' => try out.append(alloc, '\\'),
             '&' => {
                 try out.appendSlice(alloc, "&amp;");
                 continue;
