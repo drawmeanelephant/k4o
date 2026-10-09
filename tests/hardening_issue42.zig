@@ -153,6 +153,49 @@ test "hardening: entity-smuggled link schemes are refused" {
     try assertTextileDialect();
 }
 
+test "hardening: overlong numeric refs saturate instead of overflowing" {
+    // decodeRefAt multiplied every digit into a u32 before the digit-count
+    // cap rejected the reference, so `&#x` plus 9 hex digits panicked with
+    // integer overflow. Accumulation now saturates, and refs whose leading
+    // zeros keep the value in range still decode: HTML resolves them in the
+    // Textile href even where CommonMark leaves them literal.
+    const smuggled = [_][]const u8{
+        "&#x0000000000000000006a;avascript:alert(1)",
+        "&#00000106;avascript:alert(1)",
+    };
+    for (smuggled) |url| {
+        var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        var d = kt.Diagnostic{};
+        const parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, "{}", .{});
+        var buf: [256]u8 = undefined;
+        const template = try std.fmt.bufPrint(&buf, "{{{{ x | link:\"{s}\" }}}}", .{url});
+        const res = kt.render(arena, template, parsed, &d);
+        if (res) |out| {
+            std.debug.print("expected error, got output: {s}\n", .{out});
+            return error.TestExpectedError;
+        } else |e| try testing.expectEqual(error.Template, e);
+        try testing.expect(std.mem.indexOf(u8, d.message, "refuses the URL scheme 'javascript:'") != null);
+    }
+    // Digit runs whose value saturates past 0x10FFFF are not references at
+    // all: the '&' stays literal and the link renders instead of crashing.
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var d = kt.Diagnostic{};
+    const parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, "{\"x\":\"t\"}", .{});
+    try testing.expectEqualStrings(
+        "[t](&amp;#xffffffffffffffffffff;tail)",
+        try kt.renderFormat(arena, "{{ x | link:\"&#xffffffffffffffffffff;tail\" }}", parsed, &d, .markdown),
+    );
+    try testing.expectEqualStrings(
+        "[t](&amp;#99999999999999999999;tail)",
+        try kt.renderFormat(arena, "{{ x | link:\"&#99999999999999999999;tail\" }}", parsed, &d, .markdown),
+    );
+    try assertTextileDialect();
+}
+
 test "hardening: a legitimate '&' in a link URL renders escaped and round-trips" {
     // `&` is emitted as `&amp;` in markdown destinations: the renderer decodes
     // it back to `&`, and smuggled entity references become inert literals.

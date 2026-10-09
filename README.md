@@ -462,9 +462,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 84 passed, 0 failed |
-| `passthrough` | 0 passed, 84 failed |
-| `markdown` | 0 passed, 84 failed |
+| `normal` | 85 passed, 0 failed |
+| `passthrough` | 0 passed, 85 failed |
+| `markdown` | 0 passed, 85 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification

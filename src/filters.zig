@@ -296,7 +296,12 @@ fn decodeEntityPrefix(url: []const u8, out: []u8) ?[]const u8 {
 const DecodedRef = struct { codepoint: u21, len: usize };
 
 /// Decodes one character reference at the start of `s` (which begins with
-/// `&`). Semicolon-terminated only, per CommonMark 0.31.2 §6.2.
+/// `&`). Semicolon-terminated only, per CommonMark 0.31.2 §6.2. The digit
+/// run is uncapped and accumulates with saturation: HTML resolves overlong
+/// zero-padded references (`&#x000000006a;`) in attribute values, which the
+/// Textile path emits verbatim, while CommonMark leaves them literal — so
+/// decoding them here only ever over-blocks, and saturating keeps a long
+/// digit run from overflowing the u32.
 fn decodeRefAt(s: []const u8) ?DecodedRef {
     if (s.len < 3 or s[0] != '&') return null;
     if (s[1] == '#') {
@@ -307,16 +312,16 @@ fn decodeRefAt(s: []const u8) ?DecodedRef {
         if (s[i] == 'x' or s[i] == 'X') {
             i += 1;
             while (i < s.len and std.ascii.isHex(s[i])) : (i += 1) {
-                value = value * 16 + @as(u32, std.fmt.charToDigit(s[i], 16) catch return null);
+                value = value *| 16 +| @as(u32, std.fmt.charToDigit(s[i], 16) catch return null);
                 digits += 1;
             }
         } else {
             while (i < s.len and std.ascii.isDigit(s[i])) : (i += 1) {
-                value = value * 10 + (s[i] - '0');
+                value = value *| 10 +| (s[i] - '0');
                 digits += 1;
             }
         }
-        if (digits == 0 or digits > 8 or i >= s.len or s[i] != ';') return null;
+        if (digits == 0 or i >= s.len or s[i] != ';') return null;
         if (value == 0 or value > 0x10FFFF) return null;
         return .{ .codepoint = @intCast(value), .len = i + 1 };
     }
