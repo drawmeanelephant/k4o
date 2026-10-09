@@ -132,11 +132,18 @@ const Interp = struct {
         self.out.writer.writeAll(bytes) catch return error.OutOfMemory;
     }
 
-    fn putFmt(self: *Interp, comptime fmt: []const u8, args: anytype) Error!void {
-        var buf: [64]u8 = undefined;
-        const text = std.fmt.bufPrint(&buf, fmt, args) catch return error.OutOfMemory;
+    fn putFmt(self: *Interp, buf: []u8, comptime fmt: []const u8, args: anytype) Error!void {
+        const text = std.fmt.bufPrint(buf, fmt, args) catch return error.OutOfMemory;
         try self.put(text);
     }
+
+    /// Worst-case `{d}` expansion of an f64 in decimal notation: a sign,
+    /// 309 integer digits (DBL_MAX), a decimal point and 324 fractional
+    /// digits (the denormal minimum), plus headroom for separators.
+    const max_float_text = 512;
+
+    /// Worst-case `{d}` expansion of an i64: sign plus 19 digits.
+    const max_int_text = 32;
 
     fn evalNodes(self: *Interp, nodes: []const parse.Node) Error!void {
         for (nodes) |node| {
@@ -212,11 +219,33 @@ const Interp = struct {
     }
 
     fn evalCond(self: *Interp, cond: parse.Cond) Error!bool {
+        return self.evalCondDepth(cond, 0);
+    }
+
+    /// Guard on condition evaluation. The parser caps expression depth,
+    /// but parenthesised chains multiply (32 paren levels each holding a
+    /// max-length chain) and library callers can hand over any parsed AST,
+    /// so the recursive walk keeps its own budget and fails with a template
+    /// diagnostic instead of overflowing the stack.
+    const max_eval_depth: u32 = 512;
+
+    fn evalCondDepth(self: *Interp, cond: parse.Cond, depth: u32) Error!bool {
+        if (depth > max_eval_depth) {
+            return diag.fail(
+                self.alloc,
+                self.diag,
+                .render,
+                self.template,
+                0,
+                "condition expression is nested too deeply to evaluate (max {d} levels)",
+                .{max_eval_depth},
+            );
+        }
         return switch (cond) {
             .operand => |e| truthy(try self.resolveExpr(e)),
-            .neg => |inner| !(try self.evalCond(inner.*)),
-            .and_ => |ab| (try self.evalCond(ab.lhs.*)) and (try self.evalCond(ab.rhs.*)),
-            .or_ => |ab| (try self.evalCond(ab.lhs.*)) or (try self.evalCond(ab.rhs.*)),
+            .neg => |inner| !(try self.evalCondDepth(inner.*, depth + 1)),
+            .and_ => |ab| (try self.evalCondDepth(ab.lhs.*, depth + 1)) and (try self.evalCondDepth(ab.rhs.*, depth + 1)),
+            .or_ => |ab| (try self.evalCondDepth(ab.lhs.*, depth + 1)) or (try self.evalCondDepth(ab.rhs.*, depth + 1)),
             .cmp => |c| self.evalCmp(c.op, c.lhs, c.rhs),
         };
     }
@@ -295,8 +324,14 @@ const Interp = struct {
         switch (v) {
             .null => {},
             .bool => |b| try self.put(if (b) "true" else "false"),
-            .integer => |i| try self.putFmt("{d}", .{i}),
-            .float => |f| try self.putFmt("{d}", .{f}),
+            .integer => |i| {
+                var buf: [max_int_text]u8 = undefined;
+                try self.putFmt(&buf, "{d}", .{i});
+            },
+            .float => |f| {
+                var buf: [max_float_text]u8 = undefined;
+                try self.putFmt(&buf, "{d}", .{f});
+            },
             .number_string => |s| try self.put(s),
             .string => |s| try self.put(s),
             .array, .object => {

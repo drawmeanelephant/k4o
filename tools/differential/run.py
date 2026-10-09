@@ -32,6 +32,8 @@ EXCLUDED_FIXTURES = {
     "fixtures/logic-eq-object-order": "Knap compares objects by identity; k4o compares structure",
     "fixtures/loop-nested": "Knap strips leading whitespace at nested standalone tags",
     "fixtures/loop-values": "Knap strips whitespace before the following tag",
+    "fixtures/var-float-large": "Knap renders extreme floats in exponent notation (1e+308); k4o's subset expands decimal (309 digits)",
+    "fixtures/logic-cond-depth-boundary": "Knap caps condition expression depth below k4o's documented 256 (LIMIT_EXCEEDED)",
 }
 
 GFM_FIXTURES = {"examples/table", "fixtures/filter-table-basic"}
@@ -190,7 +192,7 @@ def run(k4o, knap, oliver):
     fixture_paths = sorted([*ROOT.glob("fixtures/*.knap"), *ROOT.glob("examples/*.knap")])
     fixture_names = {str(path.relative_to(ROOT).with_suffix("")) for path in fixture_paths}
     assert EXCLUDED_FIXTURES.keys() <= fixture_names, "stale fixture exclusions"
-    assert len(EXCLUDED_FIXTURES) == 12, "expected 12 documented fixture incompatibilities"
+    assert len(EXCLUDED_FIXTURES) == 14, "expected 14 documented fixture incompatibilities"
     assert GFM_FIXTURES <= fixture_names and not GFM_FIXTURES & EXCLUDED_FIXTURES.keys(), (
         "stale or excluded GFM parity fixtures"
     )

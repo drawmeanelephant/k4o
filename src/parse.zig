@@ -94,6 +94,11 @@ pub const Document = struct {
 
 const max_depth = 64;
 const max_paren_depth = 32;
+/// Cap on condition expression depth: one `Cond` node per negation and
+/// per and/or chain link, so tree depth grows with chain length. Without
+/// the cap a long `!` chain overflows the parser's own stack and a long
+/// `and`/`or` chain overflows the engine's recursive `evalCond`.
+const max_cond_depth = 256;
 
 const Mode = enum { top, branch, loop_body };
 
@@ -652,19 +657,22 @@ const Scanner = struct {
     }
 
     fn parseCondExpr(s: *Scanner) Error!Cond {
-        const cond = try s.parseOr(0);
+        const cond = try s.parseOr(0, 0);
         s.skipWs();
         if (!s.eof()) return s.err("unexpected text after condition", .{});
         return cond;
     }
 
-    fn parseOr(s: *Scanner, paren_depth: usize) Error!Cond {
-        var lhs = try s.parseAnd(paren_depth);
+    fn parseOr(s: *Scanner, paren_depth: usize, cond_depth: usize) Error!Cond {
+        var lhs = try s.parseAnd(paren_depth, cond_depth);
+        var depth = cond_depth;
         while (true) {
             const save = s.pos;
             s.skipWs();
             if (s.matchOp("||") or s.matchWord("or")) {
-                const rhs = try s.parseAnd(paren_depth);
+                if (depth >= max_cond_depth) return s.err("expression nesting too deep", .{});
+                depth += 1;
+                const rhs = try s.parseAnd(paren_depth, depth);
                 // Copy through temporaries: `lhs` must not be read while
                 // its own replacement is being constructed (result-location
                 // aliasing corrupts the pointers otherwise).
@@ -679,13 +687,16 @@ const Scanner = struct {
         return lhs;
     }
 
-    fn parseAnd(s: *Scanner, paren_depth: usize) Error!Cond {
-        var lhs = try s.parseNot(paren_depth);
+    fn parseAnd(s: *Scanner, paren_depth: usize, cond_depth: usize) Error!Cond {
+        var lhs = try s.parseNot(paren_depth, cond_depth);
+        var depth = cond_depth;
         while (true) {
             const save = s.pos;
             s.skipWs();
             if (s.matchOp("&&") or s.matchWord("and")) {
-                const rhs = try s.parseNot(paren_depth);
+                if (depth >= max_cond_depth) return s.err("expression nesting too deep", .{});
+                depth += 1;
+                const rhs = try s.parseNot(paren_depth, depth);
                 // Copy through temporaries (see parseOr).
                 const lhs_ptr = try s.p.makeCond(lhs);
                 const rhs_ptr = try s.p.makeCond(rhs);
@@ -698,16 +709,17 @@ const Scanner = struct {
         return lhs;
     }
 
-    fn parseNot(s: *Scanner, paren_depth: usize) Error!Cond {
+    fn parseNot(s: *Scanner, paren_depth: usize, cond_depth: usize) Error!Cond {
         s.skipWs();
         if (s.matchWord("not") or s.matchBang()) {
-            const inner = try s.parseNot(paren_depth);
+            if (cond_depth >= max_cond_depth) return s.err("expression nesting too deep", .{});
+            const inner = try s.parseNot(paren_depth, cond_depth + 1);
             return .{ .neg = try s.p.makeCond(inner) };
         }
         if (s.peek() == '(') {
             if (paren_depth >= max_paren_depth) return s.err("expression nesting too deep", .{});
             s.pos += 1;
-            const inner = try s.parseOr(paren_depth + 1);
+            const inner = try s.parseOr(paren_depth + 1, cond_depth);
             s.skipWs();
             if (s.peek() != ')') return s.err("expected ')'", .{});
             s.pos += 1;

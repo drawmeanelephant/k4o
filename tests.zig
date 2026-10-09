@@ -9,12 +9,22 @@
 //!    filter-touching test fails under `-Dengine-mode=markdown`).
 //! 5. Lint: the clean corpus lints clean; every error and lint fixture maps
 //!    to the teaching rule its diagnostic names (`fixtures/lint/*.knap`).
+//! 6. Hardening repros (`tests/hardening_issue42.zig`, referenced below so
+//!    its tests run in this same binary): crashing inputs from issue #42
+//!    must fail as template diagnostics, never abort the process.
 //!
 //! The three `examples/*` artifacts are part of the corpus (`ex-*`).
 
 const std = @import("std");
 const kt = @import("k4o");
 const testing = std.testing;
+
+// Issue-#42 repro suite, compiled into this binary so `zig build test`
+// reports one summary line (verify.sh parses it).
+pub const hardening_issue42 = @import("tests/hardening_issue42.zig");
+comptime {
+    _ = hardening_issue42;
+}
 
 const Case = struct {
     name: []const u8,
@@ -31,6 +41,7 @@ const cases = [_]Case{
     .{ .name = "var-spaces-name", .template = @embedFile("fixtures/var-spaces-name.knap"), .data = @embedFile("fixtures/var-spaces-name.json"), .expected = @embedFile("fixtures/var-spaces-name.textile") },
     .{ .name = "var-missing", .template = @embedFile("fixtures/var-missing.knap"), .data = @embedFile("fixtures/var-missing.json"), .expected = @embedFile("fixtures/var-missing.textile") },
     .{ .name = "var-number", .template = @embedFile("fixtures/var-number.knap"), .data = @embedFile("fixtures/var-number.json"), .expected = @embedFile("fixtures/var-number.textile") },
+    .{ .name = "var-float-large", .template = @embedFile("fixtures/var-float-large.knap"), .data = @embedFile("fixtures/var-float-large.json"), .expected = @embedFile("fixtures/var-float-large.textile") },
     .{ .name = "var-json-object", .template = @embedFile("fixtures/var-json-object.knap"), .data = @embedFile("fixtures/var-json-object.json"), .expected = @embedFile("fixtures/var-json-object.textile") },
     .{ .name = "filter-h1-basic", .template = @embedFile("fixtures/filter-h1-basic.knap"), .data = @embedFile("fixtures/filter-h1-basic.json"), .expected = @embedFile("fixtures/filter-h1-basic.textile") },
     .{ .name = "filter-h2-basic", .template = @embedFile("fixtures/filter-h2-basic.knap"), .data = @embedFile("fixtures/filter-h2-basic.json"), .expected = @embedFile("fixtures/filter-h2-basic.textile") },
@@ -66,6 +77,7 @@ const cases = [_]Case{
     .{ .name = "logic-eq-length-mismatch", .template = @embedFile("fixtures/logic-eq-length-mismatch.knap"), .data = @embedFile("fixtures/logic-eq-length-mismatch.json"), .expected = @embedFile("fixtures/logic-eq-length-mismatch.textile") },
     .{ .name = "logic-neq-object", .template = @embedFile("fixtures/logic-neq-object.knap"), .data = @embedFile("fixtures/logic-neq-object.json"), .expected = @embedFile("fixtures/logic-neq-object.textile") },
     .{ .name = "logic-and-or-parens", .template = @embedFile("fixtures/logic-and-or-parens.knap"), .data = @embedFile("fixtures/logic-and-or-parens.json"), .expected = @embedFile("fixtures/logic-and-or-parens.textile") },
+    .{ .name = "logic-cond-depth-boundary", .template = @embedFile("fixtures/logic-cond-depth-boundary.knap"), .data = @embedFile("fixtures/logic-cond-depth-boundary.json"), .expected = @embedFile("fixtures/logic-cond-depth-boundary.textile") },
     .{ .name = "logic-not", .template = @embedFile("fixtures/logic-not.knap"), .data = @embedFile("fixtures/logic-not.json"), .expected = @embedFile("fixtures/logic-not.textile") },
     .{ .name = "loop-basic", .template = @embedFile("fixtures/loop-basic.knap"), .data = @embedFile("fixtures/loop-basic.json"), .expected = @embedFile("fixtures/loop-basic.textile") },
     .{ .name = "loop-values", .template = @embedFile("fixtures/loop-values.knap"), .data = @embedFile("fixtures/loop-values.json"), .expected = @embedFile("fixtures/loop-values.textile") },
@@ -107,6 +119,11 @@ const error_cases = [_]ErrorCase{
     .{ .name = "err-stray-endif", .template = @embedFile("fixtures/errors/err-stray-endif.knap"), .message = @embedFile("fixtures/errors/err-stray-endif.error") },
     .{ .name = "err-stray-endfor", .template = @embedFile("fixtures/errors/err-stray-endfor.knap"), .message = @embedFile("fixtures/errors/err-stray-endfor.error") },
     .{ .name = "err-nesting-too-deep", .template = @embedFile("fixtures/errors/err-nesting-too-deep.knap"), .message = @embedFile("fixtures/errors/err-nesting-too-deep.error") },
+    .{ .name = "err-cond-not-chain", .template = @embedFile("fixtures/errors/err-cond-not-chain.knap"), .message = @embedFile("fixtures/errors/err-cond-not-chain.error") },
+    .{ .name = "err-cond-and-chain", .template = @embedFile("fixtures/errors/err-cond-and-chain.knap"), .message = @embedFile("fixtures/errors/err-cond-and-chain.error") },
+    .{ .name = "err-link-scheme-entity", .template = @embedFile("fixtures/errors/err-link-scheme-entity.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-entity.error") },
+    .{ .name = "err-link-scheme-colon-entity", .template = @embedFile("fixtures/errors/err-link-scheme-colon-entity.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-colon-entity.error") },
+    .{ .name = "err-link-scheme-hex-entity", .template = @embedFile("fixtures/errors/err-link-scheme-hex-entity.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-hex-entity.error") },
 };
 
 fn renderCase(
@@ -612,6 +629,11 @@ const err_lint_rules = [_]struct { name: []const u8, rule: ?[]const u8 }{
     .{ .name = "err-stray-endif", .rule = "misplaced-closing-tag" },
     .{ .name = "err-stray-endfor", .rule = "misplaced-closing-tag" },
     .{ .name = "err-nesting-too-deep", .rule = "nesting-too-deep" },
+    .{ .name = "err-cond-not-chain", .rule = "paren-too-deep" },
+    .{ .name = "err-cond-and-chain", .rule = "paren-too-deep" },
+    .{ .name = "err-link-scheme-entity", .rule = "link-scheme" },
+    .{ .name = "err-link-scheme-colon-entity", .rule = "link-scheme" },
+    .{ .name = "err-link-scheme-hex-entity", .rule = "link-scheme" },
 };
 
 const lint_broken = [_]struct { name: []const u8, template: []const u8, rule: []const u8 }{
@@ -633,6 +655,8 @@ const lint_broken = [_]struct { name: []const u8, template: []const u8, rule: []
     .{ .name = "empty-logic-tag", .template = @embedFile("fixtures/lint/empty-logic-tag.knap"), .rule = "empty-logic-tag" },
     .{ .name = "missing-value", .template = @embedFile("fixtures/lint/missing-value.knap"), .rule = "missing-value" },
     .{ .name = "link-url-text", .template = @embedFile("fixtures/lint/link-url-text.knap"), .rule = "link-url-text" },
+    .{ .name = "cond-too-deep", .template = @embedFile("fixtures/lint/cond-too-deep.knap"), .rule = "paren-too-deep" },
+    .{ .name = "link-scheme-entity", .template = @embedFile("fixtures/lint/link-scheme-entity.knap"), .rule = "link-scheme" },
     .{ .name = "endfor-inside-if", .template = @embedFile("fixtures/lint/endfor-inside-if.knap"), .rule = "endfor-inside-if" },
     .{ .name = "tag-inside-for", .template = @embedFile("fixtures/lint/tag-inside-for.knap"), .rule = "tag-inside-for" },
 };

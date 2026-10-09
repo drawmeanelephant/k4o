@@ -437,7 +437,7 @@ fn checkLinkArg(
             .detail = try std.fmt.allocPrint(
                 alloc,
                 "filter 'link' refuses the URL scheme '{s}:', which can execute script in the Textile renderer",
-                .{filters.schemeName(url)},
+                .{try filters.schemeName(alloc, url)},
             ),
             .construct = "`link` filter URL",
             .why = "javascript:, vbscript: and data: URLs execute when the output is rendered, so link refuses them at the source; navigational schemes (http:, https:, mailto:, ftp:, file:) and relative paths pass",

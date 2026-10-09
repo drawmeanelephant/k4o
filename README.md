@@ -177,6 +177,13 @@ script execution:
 {{ name | link:url }}   with {"url":"javascript:alert(1)"}   -> bad argument
 ```
 
+The check is entity-aware: CommonMark resolves entity and numeric character
+references inside link destinations, so `&#106;avascript:`, `&#x6a;avascript:`
+and `javascript&colon;` are all `javascript:` in disguise and are refused the
+same way. In the CommonMark/GFM output a literal `&` in a URL is emitted as
+`&amp;`, which the renderer decodes back to `&` — legitimate query strings
+round-trip unchanged, while smuggled references stay inert.
+
 Navigational and relative URLs are untouched — `http:`, `https:`,
 `mailto:`, `ftp:`, `file:` and site-relative paths all pass. A colon that is
 not a well-formed scheme, as in `a/b:c`, is treated as part of the path.
@@ -455,9 +462,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 77 passed, 0 failed |
-| `passthrough` | 0 passed, 77 failed |
-| `markdown` | 0 passed, 77 failed |
+| `normal` | 85 passed, 0 failed |
+| `passthrough` | 0 passed, 85 failed |
+| `markdown` | 0 passed, 85 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification

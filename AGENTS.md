@@ -58,7 +58,7 @@ ReleaseSafe run, CLI byte-exactness, error-path empty-stdout checks, the
 ## Layout
 
 - `src/parse.zig` — template → AST. Depth caps: 64 block nesting,
-  32 condition parens.
+  32 condition parens, 256 condition expression depth.
 - `src/engine.zig` — evaluation, loop frames, `charge()` budget.
 - `src/filters.zig` — the 15-filter registry and per-format emitters,
   including the `link` URL rules (blocked schemes shared with lint).

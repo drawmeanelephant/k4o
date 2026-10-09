@@ -149,7 +149,7 @@ pub fn apply(
             }
         }
         if (hasBlockedScheme(url)) {
-            return badArg(alloc, d, template, call, "filter 'link' refuses the URL scheme '{s}:', which can execute script in the Textile renderer", .{schemeName(url)});
+            return badArg(alloc, d, template, call, "filter 'link' refuses the URL scheme '{s}:', which can execute script in the Textile renderer", .{try schemeName(alloc, url)});
         }
         const text = try phraseText(alloc, d, template, call, input);
         const content = if (format != .textile and !input_is_markup) try escapeMarkdown(alloc, text) else text;
@@ -249,14 +249,102 @@ fn phraseText(
 /// paths) are the caller's business and are left alone.
 const blocked_schemes = [_][]const u8{ "javascript", "vbscript", "data" };
 
-/// True when `url` starts with a blocked scheme. The scheme grammar is
-/// `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`, so a colon that is not
+/// Decodes the entity and numeric character references that CommonMark
+/// resolves inside link destinations (`&#106;`, `&#x6a;`, `&colon;`) while
+/// copying `url`'s scheme-prefix region into `out`: everything up to and
+/// including the first decoded `:`, or the whole URL when it has none.
+///
+/// The table is deliberately tiny and complete: no HTML5 named reference
+/// resolves to a plain ASCII letter, so a smuggled *scheme* can only be
+/// built from numeric references plus `&colon;` for the separating colon.
+/// Returns null when the decoded prefix cannot fit `out` (no blocked scheme
+/// name is anywhere near that long).
+fn decodeEntityPrefix(url: []const u8, out: []u8) ?[]const u8 {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < url.len) {
+        const c = url[i];
+        if (c != ':') {
+            if (c != '&') {
+                if (n == out.len) return null;
+                out[n] = c;
+                n += 1;
+                i += 1;
+                continue;
+            }
+            if (decodeRefAt(url[i..])) |r| {
+                if (r.codepoint > 127) return null; // cannot be a scheme character
+                if (n == out.len) return null;
+                out[n] = @intCast(r.codepoint);
+                n += 1;
+                i += r.len;
+                continue;
+            }
+            if (n == out.len) return null;
+            out[n] = '&';
+            n += 1;
+            i += 1;
+            continue;
+        }
+        if (n == out.len) return null;
+        out[n] = ':';
+        return out[0 .. n + 1];
+    }
+    return out[0..n];
+}
+
+const DecodedRef = struct { codepoint: u21, len: usize };
+
+/// Decodes one character reference at the start of `s` (which begins with
+/// `&`). Semicolon-terminated only, per CommonMark 0.31.2 §6.2. The digit
+/// run is uncapped and accumulates with saturation: HTML resolves overlong
+/// zero-padded references (`&#x000000006a;`) in attribute values, which the
+/// Textile path emits verbatim, while CommonMark leaves them literal — so
+/// decoding them here only ever over-blocks, and saturating keeps a long
+/// digit run from overflowing the u32.
+fn decodeRefAt(s: []const u8) ?DecodedRef {
+    if (s.len < 3 or s[0] != '&') return null;
+    if (s[1] == '#') {
+        if (s.len < 4) return null;
+        var value: u32 = 0;
+        var i: usize = 2;
+        var digits: usize = 0;
+        if (s[i] == 'x' or s[i] == 'X') {
+            i += 1;
+            while (i < s.len and std.ascii.isHex(s[i])) : (i += 1) {
+                value = value *| 16 +| @as(u32, std.fmt.charToDigit(s[i], 16) catch return null);
+                digits += 1;
+            }
+        } else {
+            while (i < s.len and std.ascii.isDigit(s[i])) : (i += 1) {
+                value = value *| 10 +| (s[i] - '0');
+                digits += 1;
+            }
+        }
+        if (digits == 0 or i >= s.len or s[i] != ';') return null;
+        if (value == 0 or value > 0x10FFFF) return null;
+        return .{ .codepoint = @intCast(value), .len = i + 1 };
+    }
+    if (std.mem.startsWith(u8, s, "&colon;")) return .{ .codepoint = ':', .len = "&colon;".len };
+    return null;
+}
+
+/// True when `url` starts with a blocked scheme, after resolving the entity
+/// and numeric character references a CommonMark renderer would resolve in
+/// the destination (`&#106;avascript:` is `javascript:`). The scheme grammar
+/// is `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`, so a colon that is not
 /// preceded by a well-formed scheme belongs to the path, not a scheme, and
 /// `:leading-colon` and `a/b:c` are not treated as schemes. Public because
 /// lint statically checks literal `link` arguments with the same rule.
 pub fn hasBlockedScheme(url: []const u8) bool {
-    const colon = std.mem.indexOfScalar(u8, url, ':') orelse return false;
-    const scheme = url[0..colon];
+    var buf: [64]u8 = undefined;
+    const decoded = decodeEntityPrefix(url, &buf) orelse return false;
+    return blockedSchemeIn(decoded);
+}
+
+fn blockedSchemeIn(decoded: []const u8) bool {
+    const colon = std.mem.indexOfScalar(u8, decoded, ':') orelse return false;
+    const scheme = decoded[0..colon];
     if (scheme.len == 0 or !std.ascii.isAlphabetic(scheme[0])) return false;
     for (scheme[1..]) |c| {
         if (!std.ascii.isAlphanumeric(c) and c != '+' and c != '-' and c != '.') return false;
@@ -267,9 +355,18 @@ pub fn hasBlockedScheme(url: []const u8) bool {
     return false;
 }
 
-/// The scheme prefix of `url`, or `url` itself when there is no colon.
-/// Public for lint's teaching output.
-pub fn schemeName(url: []const u8) []const u8 {
+/// The scheme prefix of `url` as it will be seen by the renderer, with
+/// entity references resolved, or `url` itself when there is no colon.
+/// Allocated because entity smuggling can stretch the prefix. Public for
+/// lint's teaching output.
+pub fn schemeName(alloc: std.mem.Allocator, url: []const u8) error{OutOfMemory}![]const u8 {
+    var buf: [64]u8 = undefined;
+    if (decodeEntityPrefix(url, &buf)) |decoded| {
+        if (std.mem.indexOfScalar(u8, decoded, ':')) |colon| {
+            return alloc.dupe(u8, decoded[0..colon]);
+        }
+        return alloc.dupe(u8, decoded);
+    }
     const colon = std.mem.indexOfScalar(u8, url, ':') orelse return url;
     return url[0..colon];
 }
@@ -361,11 +458,28 @@ fn orderedListMarker(text: []const u8) ?usize {
     return i;
 }
 
+/// Percent- and entity-safe destination for the `[text](url)` form.
+///
+/// `(`, `)` and `\` are backslash-escaped per CommonMark 0.31.2 §6.6.
+/// `&` is emitted as `&amp;` so that entity or numeric character
+/// references in the source URL (`&#106;avascript:`, `javascript&colon;`,
+/// `&#x6a;`) cannot survive into the resolved destination: CommonMark
+/// decodes references inside link destinations, and a decoded
+/// `javascript:`-family scheme would bypass the blocklist checked against
+/// the raw argument. `&amp;` round-trips to a literal `&`, so legitimate
+/// URLs with query strings render unchanged.
 fn escapeUrl(alloc: std.mem.Allocator, url: []const u8) error{OutOfMemory}![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(alloc);
     for (url) |c| {
-        if (c == '(' or c == ')' or c == '\\') try out.append(alloc, '\\');
+        switch (c) {
+            '(', ')', '\\' => try out.append(alloc, '\\'),
+            '&' => {
+                try out.appendSlice(alloc, "&amp;");
+                continue;
+            },
+            else => {},
+        }
         try out.append(alloc, c);
     }
     return out.toOwnedSlice(alloc);
