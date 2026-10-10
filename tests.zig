@@ -12,6 +12,9 @@
 //! 6. Hardening repros (`tests/hardening_issue42.zig`, referenced below so
 //!    its tests run in this same binary): crashing inputs from issue #42
 //!    must fail as template diagnostics, never abort the process.
+//! 7. Deep-value guards (`tests/deep_nesting.zig`): interpolating a value
+//!    past the serializer's nesting limit and comparing one past the
+//!    compare budget must fail as diagnostics, never panic or answer wrong.
 //!
 //! The three `examples/*` artifacts are part of the corpus (`ex-*`).
 
@@ -22,8 +25,10 @@ const testing = std.testing;
 // Issue-#42 repro suite, compiled into this binary so `zig build test`
 // reports one summary line (verify.sh parses it).
 pub const hardening_issue42 = @import("tests/hardening_issue42.zig");
+pub const deep_nesting = @import("tests/deep_nesting.zig");
 comptime {
     _ = hardening_issue42;
+    _ = deep_nesting;
 }
 
 const Case = struct {
@@ -124,6 +129,8 @@ const error_cases = [_]ErrorCase{
     .{ .name = "err-link-scheme-entity", .template = @embedFile("fixtures/errors/err-link-scheme-entity.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-entity.error") },
     .{ .name = "err-link-scheme-colon-entity", .template = @embedFile("fixtures/errors/err-link-scheme-colon-entity.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-colon-entity.error") },
     .{ .name = "err-link-scheme-hex-entity", .template = @embedFile("fixtures/errors/err-link-scheme-hex-entity.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-hex-entity.error") },
+    .{ .name = "err-deep-serialize", .template = @embedFile("fixtures/errors/err-deep-serialize.knap"), .data = @embedFile("fixtures/errors/err-deep-serialize.json"), .message = @embedFile("fixtures/errors/err-deep-serialize.error") },
+    .{ .name = "err-deep-compare", .template = @embedFile("fixtures/errors/err-deep-compare.knap"), .data = @embedFile("fixtures/errors/err-deep-compare.json"), .message = @embedFile("fixtures/errors/err-deep-compare.error") },
 };
 
 fn renderCase(
@@ -634,6 +641,8 @@ const err_lint_rules = [_]struct { name: []const u8, rule: ?[]const u8 }{
     .{ .name = "err-link-scheme-entity", .rule = "link-scheme" },
     .{ .name = "err-link-scheme-colon-entity", .rule = "link-scheme" },
     .{ .name = "err-link-scheme-hex-entity", .rule = "link-scheme" },
+    .{ .name = "err-deep-serialize", .rule = null },
+    .{ .name = "err-deep-compare", .rule = null },
 };
 
 const lint_broken = [_]struct { name: []const u8, template: []const u8, rule: []const u8 }{
