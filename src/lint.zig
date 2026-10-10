@@ -413,20 +413,35 @@ fn checkLinkArg(
         });
         return;
     }
-    for (url) |c| {
-        if (c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == '"') {
-            try findings.append(alloc, .{
-                .rule = "link-url-text",
-                .kind = .bad_argument,
-                .line = pos.line,
-                .column = pos.column,
-                .detail = "filter 'link' URL must not contain whitespace or a double quote",
-                .construct = "`link` filter URL",
-                .why = "whitespace and double quotes break the Textile link form; percent-encode them (a space becomes %20) or choose a URL that needs neither",
-                .example = "{{ name | link:\"https://example.com/my%20post\" }}",
-            });
-            return;
-        }
+    if (filters.urlProblem(url)) |problem| {
+        const teaching = switch (problem) {
+            .leading_angle => .{
+                "filter 'link' URL must not start with '<'",
+                "a leading '<' is CommonMark's angle-bracket destination syntax, so the rendered link would go somewhere else; percent-encode it (%3C) or choose a URL without it",
+                "{{ name | link:\"https://example.com/\" }}",
+            },
+            .whitespace_or_dquote => .{
+                "filter 'link' URL must not contain whitespace or a double quote",
+                "whitespace and double quotes break the Textile link form; percent-encode them (a space becomes %20) or choose a URL that needs neither",
+                "{{ name | link:\"https://example.com/my%20post\" }}",
+            },
+            .control_char => .{
+                "filter 'link' URL must not contain ASCII control characters",
+                "ASCII control characters break the link destination and the link silently disappears from the output; percent-encode them as %XX or choose a URL without them",
+                "{{ name | link:\"https://example.com/\" }}",
+            },
+        };
+        try findings.append(alloc, .{
+            .rule = "link-url-text",
+            .kind = .bad_argument,
+            .line = pos.line,
+            .column = pos.column,
+            .detail = teaching[0],
+            .construct = "`link` filter URL",
+            .why = teaching[1],
+            .example = teaching[2],
+        });
+        return;
     }
     if (filters.hasBlockedScheme(url)) {
         try findings.append(alloc, .{

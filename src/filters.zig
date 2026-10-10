@@ -117,7 +117,7 @@ pub fn apply(
     if (std.mem.eql(u8, call.name, "blockquote")) {
         if (call.arg != null) return badArg(alloc, d, template, call, "filter 'blockquote' takes no arguments", .{});
         const text = try phraseText(alloc, d, template, call, input);
-        const content = if (format != .textile and !input_is_markup) try escapeMarkdown(alloc, text) else text;
+        const content = if (format != .textile and !input_is_markup) try escapeMarkdownInContext(alloc, text, .block_quote) else text;
         const out = if (format != .textile)
             try std.fmt.allocPrint(alloc, "> {s}", .{content})
         else
@@ -143,10 +143,12 @@ pub fn apply(
             return badArg(alloc, d, template, call, "filter 'link' requires a URL argument, e.g. link:\"https://example.com/\"", .{});
         const url = try argText(alloc, d, template, call, arg, root);
         if (url.len == 0) return badArg(alloc, d, template, call, "filter 'link' URL must not be empty", .{});
-        for (url) |c| {
-            if (c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == '"') {
-                return badArg(alloc, d, template, call, "filter 'link' URL must not contain whitespace or a double quote", .{});
-            }
+        if (urlProblem(url)) |p| {
+            return switch (p) {
+                .leading_angle => badArg(alloc, d, template, call, "filter 'link' URL must not start with '<'", .{}),
+                .whitespace_or_dquote => badArg(alloc, d, template, call, "filter 'link' URL must not contain whitespace or a double quote", .{}),
+                .control_char => badArg(alloc, d, template, call, "filter 'link' URL must not contain ASCII control characters", .{}),
+            };
         }
         if (hasBlockedScheme(url)) {
             return badArg(alloc, d, template, call, "filter 'link' refuses the URL scheme '{s}:', which can execute script in the Textile renderer", .{try schemeName(alloc, url)});
@@ -420,24 +422,28 @@ fn escapeMarkdown(alloc: std.mem.Allocator, text: []const u8) error{OutOfMemory}
     return escapeMarkdownInContext(alloc, text, .inline_text);
 }
 
-const MarkdownContext = enum { inline_text, list_item };
+/// `inline_text` is markup-inline content (headings, emphasis, link text,
+/// table cells). The block containers — `list_item`, `block_quote` — also
+/// expose each line start to block constructs, so ordered-list markers are
+/// escaped there as well.
+const MarkdownContext = enum { inline_text, block_quote, list_item };
 
 fn escapeMarkdownInContext(alloc: std.mem.Allocator, text: []const u8, context: MarkdownContext) error{OutOfMemory}![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(alloc);
-    var ordered_marker = if (context == .list_item) orderedListMarker(text) else null;
+    var ordered_marker = if (context == .inline_text) null else orderedListMarker(text);
     for (text, 0..) |c, i| {
         if (c == '&') {
             try out.appendSlice(alloc, "&amp;");
         } else {
             const at_line_start = out.items.len == 0 or out.items[out.items.len - 1] == '\n';
             if (std.mem.indexOfScalar(u8, "\\`*_[]<>", c) != null or
-                (at_line_start and std.mem.indexOfScalar(u8, "#+-", c) != null) or
+                (at_line_start and std.mem.indexOfScalar(u8, "#+-~", c) != null) or
                 ordered_marker == i)
                 try out.append(alloc, '\\');
             try out.append(alloc, c);
         }
-        if (context == .list_item and (c == '\n' or c == '\r')) {
+        if (context != .inline_text and (c == '\n' or c == '\r')) {
             const start = i + 1;
             ordered_marker = if (orderedListMarker(text[start..])) |offset| start + offset else null;
         }
@@ -456,6 +462,27 @@ fn orderedListMarker(text: []const u8) ?usize {
     if (i == digits_start or i == text.len or (text[i] != '.' and text[i] != ')')) return null;
     if (i + 1 < text.len and std.mem.indexOfScalar(u8, " \t\r\n", text[i + 1]) == null) return null;
     return i;
+}
+
+pub const UrlProblem = enum { leading_angle, whitespace_or_dquote, control_char };
+
+/// The first destination-hostile byte property in `url`, if any. A
+/// CommonMark parenthesised destination cannot start with `<` (it parses as
+/// the angle-bracket form and resolves to a different URL), and cannot
+/// contain spaces or ASCII control characters — the link silently stops
+/// parsing and the anchor disappears into literal text. Whitespace and `"`
+/// additionally break the Textile link form. Refused rather than encoded:
+/// the resolved destination is `url` itself, and a `<`-wrapped destination
+/// survives no downstream pipeline unchanged. Public because lint
+/// statically checks literal `link` arguments with the same rule.
+pub fn urlProblem(url: []const u8) ?UrlProblem {
+    if (url.len == 0) return null;
+    if (url[0] == '<') return .leading_angle;
+    for (url) |c| {
+        if (c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == '"') return .whitespace_or_dquote;
+        if (std.ascii.isControl(c)) return .control_char;
+    }
+    return null;
 }
 
 /// Percent- and entity-safe destination for the `[text](url)` form.
