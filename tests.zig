@@ -89,6 +89,7 @@ const cases = [_]Case{
     .{ .name = "loop-values", .template = @embedFile("fixtures/loop-values.knap"), .data = @embedFile("fixtures/loop-values.json"), .expected = @embedFile("fixtures/loop-values.textile") },
     .{ .name = "loop-nested", .template = @embedFile("fixtures/loop-nested.knap"), .data = @embedFile("fixtures/loop-nested.json"), .expected = @embedFile("fixtures/loop-nested.textile") },
     .{ .name = "loop-empty", .template = @embedFile("fixtures/loop-empty.knap"), .data = @embedFile("fixtures/loop-empty.json"), .expected = @embedFile("fixtures/loop-empty.textile") },
+    .{ .name = "loop-var-named-loop", .template = @embedFile("fixtures/loop-var-named-loop.knap"), .data = @embedFile("fixtures/loop-var-named-loop.json"), .expected = @embedFile("fixtures/loop-var-named-loop.textile") },
     .{ .name = "comment-inline", .template = @embedFile("fixtures/comment-inline.knap"), .data = @embedFile("fixtures/comment-inline.json"), .expected = @embedFile("fixtures/comment-inline.textile") },
     .{ .name = "comment-multiline", .template = @embedFile("fixtures/comment-multiline.knap"), .data = @embedFile("fixtures/comment-multiline.json"), .expected = @embedFile("fixtures/comment-multiline.textile") },
     .{ .name = "unicode-data", .template = @embedFile("fixtures/unicode-data.knap"), .data = @embedFile("fixtures/unicode-data.json"), .expected = @embedFile("fixtures/unicode-data.textile") },
@@ -1341,6 +1342,21 @@ test "unit: loop.index0 and loop.first" {
 test "unit: loop over a nested array path" {
     try renderOk("{% for item in a.b %}{{ item }};{% endfor %}", "{\"a\":{\"b\":[1,2]}}", "1;2;");
     try renderOk("{% for item in a[0] %}{{ item }}{% endfor %}", "{\"a\":[[\"p\",\"q\"]]}", "pq");
+}
+
+test "unit: a loop variable named loop cannot shadow the loop object" {
+    // Inside a loop `loop` is always the loop object (knap parity), so a
+    // variable bound as `{% for loop in xs %}` is unreachable (#54).
+    try renderOk(
+        "{% for loop in xs %}[{{ loop.index }}:{{ loop }}]{% endfor %}",
+        "{\"xs\":[\"a\",\"b\"]}",
+        "[1:{\"index\":1,\"index0\":0,\"first\":true,\"last\":false,\"length\":2}]" ++
+            "[2:{\"index\":2,\"index0\":1,\"first\":false,\"last\":true,\"length\":2}]",
+    );
+    // An ordinary loop variable still resolves alongside the loop object.
+    try renderOk("{% for item in xs %}{{ item }}:{{ loop.index }}{% endfor %}", "{\"xs\":[\"a\",\"b\"]}", "a:1b:2");
+    // Outside any loop a data property named `loop` still resolves.
+    try renderOk("{{ loop }}", "{\"loop\":\"data\"}", "data");
 }
 
 test "unit: loop body leading-newline strip applies once" {
