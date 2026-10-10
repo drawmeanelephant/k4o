@@ -1,4 +1,4 @@
-<!-- k4o init knap-tour v2 -->
+<!-- k4o init knap-tour v3 -->
 # knap in one page
 
 Knap is a template language: template + JSON data in, Markdown-family text
@@ -17,6 +17,8 @@ k4o render template.knap --data data.json
 {{ title }}          the value of the data key "title" (or empty if absent)
 {{title}}            whitespace around the expression is optional
 {{ "text" }}         a string literal
+{{ "a\nb" }}         escapes: \n \t \r emit the control character; any
+                     other \X drops the backslash (\q is q, \x41 is x41)
 {{ 7 }} {{ 1.5 }}    number literals
 {{ true }} {{ null }}  boolean and null literals
 {{ First name }}     names may contain spaces inside interpolation
