@@ -272,18 +272,20 @@ const Interp = struct {
         var current: std.json.Value = .{ .null = {} };
         var found = false;
 
-        // Loop variables shadow the data root, innermost first.
+        // Loop variables shadow the data root, innermost first. Inside a
+        // loop `loop` is always the loop object, so a variable named `loop`
+        // (`{% for loop in xs %}`) is unreachable — knap semantics.
         var frame_index = self.loops.items.len;
         while (frame_index > 0) {
             frame_index -= 1;
             const frame = &self.loops.items[frame_index];
-            if (std.mem.eql(u8, path.root, frame.name)) {
-                current = frame.items[frame.index];
+            if (std.mem.eql(u8, path.root, "loop")) {
+                current = try self.loopObject(frame);
                 found = true;
                 break;
             }
-            if (std.mem.eql(u8, path.root, "loop")) {
-                current = try self.loopObject(frame);
+            if (std.mem.eql(u8, path.root, frame.name)) {
+                current = frame.items[frame.index];
                 found = true;
                 break;
             }

@@ -1,0 +1,1 @@
+{% for loop in xs %}{{ loop.index }}/{{ loop.index0 }}/{{ loop.length }} -> {{ loop }}{% endfor %}

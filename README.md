@@ -88,7 +88,7 @@ documentation (see the clean-room record below):
 | Literals | `{{ "text" }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}` | Usable as values and as condition operands. |
 | Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. `==`/`!=` compare the whole value structurally, so objects and arrays work and key order does not matter; `<`/`<=`/`>`/`>=` are numbers and strings only. |
 | Truthiness | — | `false`, `null`, missing values, `""`, `0`, and `[]` are false; everything else true. |
-| Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Iterating a non-array is a render error. **Nested loops multiply** — see [Output size](#output-size). |
+| Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Inside a loop `loop` always means the loop object, so a variable bound as `{% for loop in array %}` is unreachable. Iterating a non-array is a render error. **Nested loops multiply** — see [Output size](#output-size). |
 | Comments | `{# … #}` | Single- or multi-line; removed from the output; never evaluated; unclosed is a syntax error. |
 | Missing values | — | Render as empty text; are false in conditions. |
 
@@ -462,9 +462,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 85 passed, 0 failed |
-| `passthrough` | 0 passed, 85 failed |
-| `markdown` | 0 passed, 85 failed |
+| `normal` | 86 passed, 0 failed |
+| `passthrough` | 0 passed, 86 failed |
+| `markdown` | 0 passed, 86 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification
