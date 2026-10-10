@@ -35,6 +35,9 @@ EXCLUDED_FIXTURES = {
     "fixtures/var-float-large": "Knap renders extreme floats in exponent notation (1e+308); k4o's subset expands decimal (309 digits)",
     "fixtures/logic-cond-depth-boundary": "Knap caps condition expression depth below k4o's documented 256 (LIMIT_EXCEEDED)",
     "fixtures/logic-eq-deep": "Knap caps JSON data depth ~119 levels (LIMIT_EXCEEDED); k4o accepts and compares structurally",
+    "fixtures/filter-blockquote-ordered-marker": "Knap leaves ordered-list markers unescaped inside blockquotes (parses as <ol>); k4o escapes them as literal text",
+    "fixtures/filter-blockquote-tilde-fence": "Knap does not escape ~ at line start, so blockquote content becomes a fenced code block; k4o escapes it",
+    "fixtures/filter-list-tilde-fence": "Knap does not escape ~ at line start, so list-item content becomes a fenced code block; k4o escapes it",
 }
 
 GFM_FIXTURES = {"examples/table", "fixtures/filter-table-basic"}
@@ -193,7 +196,7 @@ def run(k4o, knap, oliver):
     fixture_paths = sorted([*ROOT.glob("fixtures/*.knap"), *ROOT.glob("examples/*.knap")])
     fixture_names = {str(path.relative_to(ROOT).with_suffix("")) for path in fixture_paths}
     assert EXCLUDED_FIXTURES.keys() <= fixture_names, "stale fixture exclusions"
-    assert len(EXCLUDED_FIXTURES) == 15, "expected 15 documented fixture incompatibilities"
+    assert len(EXCLUDED_FIXTURES) == 18, "expected 18 documented fixture incompatibilities"
     assert GFM_FIXTURES <= fixture_names and not GFM_FIXTURES & EXCLUDED_FIXTURES.keys(), (
         "stale or excluded GFM parity fixtures"
     )

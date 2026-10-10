@@ -358,8 +358,8 @@ Error conditions (all produce a message with kind, line, and column):
 - Unknown filter name, or an argument where none is allowed / missing where
   required — `bad argument` / `unknown filter`.
 - Phrase filters (`h1`…`h6`, `bold`, `italic`, `code`, `blockquote`, `link`)
-  require single-line text; `link` also rejects `"` in text and whitespace or
-  `"` in the URL.
+  require single-line text; `link` also rejects `"` in text, and whitespace,
+  `"`, ASCII control characters or a leading `<` in the URL.
 - `link` rejects the `javascript:`, `vbscript:` and `data:` URL schemes, and
   any filter argument that resolves to a non-text value. See
   [URL schemes](#url-schemes-in-link).
@@ -468,9 +468,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 94 passed, 0 failed |
-| `passthrough` | 0 passed, 94 failed |
-| `markdown` | 0 passed, 94 failed |
+| `normal` | 100 passed, 0 failed |
+| `passthrough` | 0 passed, 100 failed |
+| `markdown` | 0 passed, 100 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification
@@ -529,13 +529,15 @@ regressions check empty and all-space spans, preserved boundary spaces and
 backticks, and fences with zero, one, or multiple terminal newlines through
 Oliver, with identical GFM/Markdown bytes.
 
-Scalar `list` and `numbered` items escape ordered-list markers such as
-`1. text`, `1) text` and their multi-digit forms at the start of a line
-(including up to three leading spaces). They stay literal item text; genuine
-nested arrays still create nested lists. This intentionally differs from
-knap's bytes for those markers and is checked structurally through Oliver,
-not added to the byte-parity corpus. Markdown and GFM emit identical escapes;
-Textile and raw interpolation remain unchanged.
+Scalar `list` and `numbered` items and `blockquote` content escape
+ordered-list markers such as `1. text`, `1) text` and their multi-digit
+forms at the start of a line (including up to three leading spaces), and
+`~` at the start of a line, so a tilde fence or a list marker in data
+cannot restructure the surrounding block. Escaped text stays literal;
+genuine nested arrays still create nested lists. This intentionally
+differs from knap's bytes for those markers and is checked structurally
+through Oliver, not added to the byte-parity corpus. Markdown and GFM emit
+identical escapes; Textile and raw interpolation remain unchanged.
 
 Nested `numbered` lists start at their preceding parent's content column:
 three spaces after `9.`, four after `10.`, five after `100.`, and so on.

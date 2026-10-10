@@ -1,4 +1,4 @@
-<!-- k4o init knap-gotchas v3 -->
+<!-- k4o init knap-gotchas v4 -->
 # knap gotchas
 
 The sharp edges, in order of how often they bite. Everything here is
@@ -41,8 +41,9 @@ silent fallback.
 
 `javascript:`, `vbscript:` and `data:` (any case) are refused because they
 execute in a renderer. `http:`, `https:`, `mailto:`, `ftp:`, `file:` and
-relative paths pass. The URL must not contain whitespace or `"`, and the
-link text must not contain `"`.
+relative paths pass. The URL must not contain whitespace, ASCII control
+characters or `"`, and must not start with `<`; the link text must not
+contain `"`.
 
 ## Truthiness surprises
 

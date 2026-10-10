@@ -59,6 +59,8 @@ const cases = [_]Case{
     .{ .name = "filter-italic-basic", .template = @embedFile("fixtures/filter-italic-basic.knap"), .data = @embedFile("fixtures/filter-italic-basic.json"), .expected = @embedFile("fixtures/filter-italic-basic.textile") },
     .{ .name = "filter-code-basic", .template = @embedFile("fixtures/filter-code-basic.knap"), .data = @embedFile("fixtures/filter-code-basic.json"), .expected = @embedFile("fixtures/filter-code-basic.textile") },
     .{ .name = "filter-blockquote-basic", .template = @embedFile("fixtures/filter-blockquote-basic.knap"), .data = @embedFile("fixtures/filter-blockquote-basic.json"), .expected = @embedFile("fixtures/filter-blockquote-basic.textile") },
+    .{ .name = "filter-blockquote-tilde-fence", .template = @embedFile("fixtures/filter-blockquote-tilde-fence.knap"), .data = @embedFile("fixtures/filter-blockquote-tilde-fence.json"), .expected = @embedFile("fixtures/filter-blockquote-tilde-fence.textile") },
+    .{ .name = "filter-blockquote-ordered-marker", .template = @embedFile("fixtures/filter-blockquote-ordered-marker.knap"), .data = @embedFile("fixtures/filter-blockquote-ordered-marker.json"), .expected = @embedFile("fixtures/filter-blockquote-ordered-marker.textile") },
     .{ .name = "filter-codeblock-basic", .template = @embedFile("fixtures/filter-codeblock-basic.knap"), .data = @embedFile("fixtures/filter-codeblock-basic.json"), .expected = @embedFile("fixtures/filter-codeblock-basic.textile") },
     .{ .name = "filter-codeblock-blank-lines", .template = @embedFile("fixtures/filter-codeblock-blank-lines.knap"), .data = @embedFile("fixtures/filter-codeblock-blank-lines.json"), .expected = @embedFile("fixtures/filter-codeblock-blank-lines.textile") },
     .{ .name = "filter-link-basic", .template = @embedFile("fixtures/filter-link-basic.knap"), .data = @embedFile("fixtures/filter-link-basic.json"), .expected = @embedFile("fixtures/filter-link-basic.textile") },
@@ -66,6 +68,7 @@ const cases = [_]Case{
     .{ .name = "filter-link-literal-arg", .template = @embedFile("fixtures/filter-link-literal-arg.knap"), .data = @embedFile("fixtures/filter-link-literal-arg.json"), .expected = @embedFile("fixtures/filter-link-literal-arg.textile") },
     .{ .name = "filter-list-basic", .template = @embedFile("fixtures/filter-list-basic.knap"), .data = @embedFile("fixtures/filter-list-basic.json"), .expected = @embedFile("fixtures/filter-list-basic.textile") },
     .{ .name = "filter-list-nested", .template = @embedFile("fixtures/filter-list-nested.knap"), .data = @embedFile("fixtures/filter-list-nested.json"), .expected = @embedFile("fixtures/filter-list-nested.textile") },
+    .{ .name = "filter-list-tilde-fence", .template = @embedFile("fixtures/filter-list-tilde-fence.knap"), .data = @embedFile("fixtures/filter-list-tilde-fence.json"), .expected = @embedFile("fixtures/filter-list-tilde-fence.textile") },
     .{ .name = "filter-numbered-basic", .template = @embedFile("fixtures/filter-numbered-basic.knap"), .data = @embedFile("fixtures/filter-numbered-basic.json"), .expected = @embedFile("fixtures/filter-numbered-basic.textile") },
     .{ .name = "filter-numbered-nested", .template = @embedFile("fixtures/filter-numbered-nested.knap"), .data = @embedFile("fixtures/filter-numbered-nested.json"), .expected = @embedFile("fixtures/filter-numbered-nested.textile") },
     .{ .name = "filter-table-basic", .template = @embedFile("fixtures/filter-table-basic.knap"), .data = @embedFile("fixtures/filter-table-basic.json"), .expected = @embedFile("fixtures/filter-table-basic.textile") },
@@ -133,6 +136,8 @@ const error_cases = [_]ErrorCase{
     .{ .name = "err-link-scheme-colon-entity", .template = @embedFile("fixtures/errors/err-link-scheme-colon-entity.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-colon-entity.error") },
     .{ .name = "err-link-scheme-hex-entity", .template = @embedFile("fixtures/errors/err-link-scheme-hex-entity.knap"), .message = @embedFile("fixtures/errors/err-link-scheme-hex-entity.error") },
     .{ .name = "err-deep-serialize", .template = @embedFile("fixtures/errors/err-deep-serialize.knap"), .data = @embedFile("fixtures/errors/err-deep-serialize.json"), .message = @embedFile("fixtures/errors/err-deep-serialize.error") },
+    .{ .name = "err-link-angle-url", .template = @embedFile("fixtures/errors/err-link-angle-url.knap"), .message = @embedFile("fixtures/errors/err-link-angle-url.error") },
+    .{ .name = "err-link-control-char", .template = @embedFile("fixtures/errors/err-link-control-char.knap"), .data = @embedFile("fixtures/errors/err-link-control-char.json"), .message = @embedFile("fixtures/errors/err-link-control-char.error") },
 };
 
 fn renderCase(
@@ -374,6 +379,73 @@ test "unit: list text stays literal while nested arrays retain their markers" {
         }
         try testing.expectEqualStrings(sample[3], try kt.renderFormat(arena, "{{ items | list }}", data, &d, .textile));
         try testing.expectEqualStrings(sample[4], try kt.renderFormat(arena, "{{ items | numbered }}", data, &d, .textile));
+    }
+    try assertTextileDialect();
+}
+
+test "unit: tilde fences are escaped at line starts in block containers" {
+    // A `~~~` at the start of an output line opens a CommonMark fenced code
+    // block: item text escapes the list, blockquote text disappears (issue
+    // #49). `~` joins `#+-` in the line-start escape set, so every block
+    // context — first item line, continuation lines, blockquote — keeps the
+    // tildes as literal text.
+    const samples = .{
+        .{ "{\"items\":[\"a\\n~~~\\nb\"]}", "- a\n\\~~~\nb", "* a\n~~~\nb" },
+        .{ "{\"items\":[\"~~~\\nx\"]}", "- \\~~~\nx", "* ~~~\nx" },
+        .{ "{\"items\":[\"x\\n~~~~\"]}", "- x\n\\~~~~", "* x\n~~~~" },
+        .{ "{\"items\":[\"~x\"]}", "- \\~x", "* ~x" },
+    };
+    inline for (samples) |sample| {
+        var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        const data = try std.json.parseFromSliceLeaky(std.json.Value, arena, sample[0], .{});
+        var d = kt.Diagnostic{};
+        for ([_]kt.Format{ .markdown, .gfm }) |format| {
+            try testing.expectEqualStrings(sample[1], try kt.renderFormat(arena, "{{ items | list }}", data, &d, format));
+        }
+        try testing.expectEqualStrings(sample[2], try kt.renderFormat(arena, "{{ items | list }}", data, &d, .textile));
+    }
+    try assertTextileDialect();
+}
+
+test "unit: blockquote text escapes tilde fences and ordered-list markers" {
+    // `> ~~~` and `> 1. x` parse as a fenced code block and an ordered list
+    // inside the blockquote; the text restructures or disappears (issues #49
+    // and #50). Blockquote content is block-level, so it gets the same
+    // line-start and ordered-marker escapes as list items — while headings
+    // and raw interpolation stay untouched.
+    const samples = .{
+        .{ "~~~", "> \\~~~", "# \\~~~", "bq. ~~~" },
+        .{ "~~~ x", "> \\~~~ x", "# \\~~~ x", "bq. ~~~ x" },
+        .{ "1. x", "> 1\\. x", "# 1. x", "bq. 1. x" },
+        .{ "1) x", "> 1\\) x", "# 1) x", "bq. 1) x" },
+        .{ "10. x", "> 10\\. x", "# 10. x", "bq. 10. x" },
+        .{ " 1. x", ">  1\\. x", "#  1. x", "bq.  1. x" },
+        .{ "   1) x", ">    1\\) x", "#    1) x", "bq.    1) x" },
+        .{ "0. x", "> 0\\. x", "# 0. x", "bq. 0. x" },
+        .{ "1.", "> 1\\.", "# 1.", "bq. 1." },
+        // Not markers: no space after the delimiter, ten digits, marker
+        // not at the line start.
+        .{ "1.x", "> 1.x", "# 1.x", "bq. 1.x" },
+        .{ "1234567890. x", "> 1234567890. x", "# 1234567890. x", "bq. 1234567890. x" },
+        .{ "x 1. y", "> x 1. y", "# x 1. y", "bq. x 1. y" },
+    };
+    inline for (samples) |sample| {
+        var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        const json = try std.json.Stringify.valueAlloc(arena, .{ .text = sample[0] }, .{});
+        const data = try std.json.parseFromSliceLeaky(std.json.Value, arena, json, .{});
+        var d = kt.Diagnostic{};
+        for ([_]kt.Format{ .markdown, .gfm }) |format| {
+            try testing.expectEqualStrings(sample[1], try kt.renderFormat(arena, "{{ text | blockquote }}", data, &d, format));
+            // Heading content is inline: `1. x` inside `# ...` cannot open a
+            // list, so ordered markers stay unescaped there (issue #50) while
+            // a leading `~` is escaped like the other line-start markers.
+            try testing.expectEqualStrings(sample[2], try kt.renderFormat(arena, "{{ text | h1 }}", data, &d, format));
+        }
+        try testing.expectEqualStrings(sample[3], try kt.renderFormat(arena, "{{ text | blockquote }}", data, &d, .textile));
     }
     try assertTextileDialect();
 }
@@ -644,6 +716,8 @@ const err_lint_rules = [_]struct { name: []const u8, rule: ?[]const u8 }{
     .{ .name = "err-link-scheme-colon-entity", .rule = "link-scheme" },
     .{ .name = "err-link-scheme-hex-entity", .rule = "link-scheme" },
     .{ .name = "err-deep-serialize", .rule = null },
+    .{ .name = "err-link-angle-url", .rule = "link-url-text" },
+    .{ .name = "err-link-control-char", .rule = null },
 };
 
 const lint_broken = [_]struct { name: []const u8, template: []const u8, rule: []const u8 }{
@@ -1459,6 +1533,75 @@ test "unit: an invalid link URL supplied through data still fails to render" {
     // whitespace/quote check applies to the resolved value either way.
     try renderErr("{{ name | link:u }}", "{\"name\":\"n\",\"u\":\"has space\"}", "filter 'link' URL must not contain whitespace or a double quote");
     try renderErr("{{ name | link:u }}", "{\"name\":\"n\",\"u\":\"has\\\"quote\"}", "filter 'link' URL must not contain whitespace or a double quote");
+}
+
+test "unit: a leading '<' in a link URL is refused in every format" {
+    // `[x](<foo>)` parses as the angle-bracket destination form and resolves
+    // to `foo`, not `<foo>` (issue #52). The URL is refused as a bad argument
+    // — in the Textile path too, where downstream parsing loses the brackets
+    // the same way — rather than emitted pointing at the wrong place.
+    try renderErr("{{ \"x\" | link:\"<foo>\" }}", "{}", "filter 'link' URL must not start with '<'");
+    try renderErr("{{ \"x\" | link:\"<\" }}", "{}", "filter 'link' URL must not start with '<'");
+    try renderErr("{{ \"x\" | link:u }}", "{\"u\":\"<foo>\"}", "filter 'link' URL must not start with '<'");
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const data = try std.json.parseFromSliceLeaky(std.json.Value, arena, "{\"u\":\"<foo>\"}", .{});
+    for ([_]kt.Format{ .markdown, .gfm }) |format| {
+        var d = kt.Diagnostic{};
+        try testing.expectError(error.Template, kt.renderFormat(arena, "{{ \"x\" | link:u }}", data, &d, format));
+        try testing.expect(std.mem.indexOf(u8, d.message, "must not start with '<'") != null);
+    }
+    try assertTextileDialect();
+}
+
+test "unit: angle brackets mid-URL are ordinary destination bytes" {
+    // Only a *leading* `<` is destination syntax; `a<b` and `>x` resolve to
+    // themselves in every format.
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const data = try std.json.parseFromSliceLeaky(std.json.Value, arena, "{}", .{});
+    for ([_]kt.Format{ .markdown, .gfm }) |format| {
+        var d = kt.Diagnostic{};
+        try testing.expectEqualStrings("[x](a<b)", try kt.renderFormat(arena, "{{ \"x\" | link:\"a<b\" }}", data, &d, format));
+        try testing.expectEqualStrings("[x](a>b)", try kt.renderFormat(arena, "{{ \"x\" | link:\"a>b\" }}", data, &d, format));
+        try testing.expectEqualStrings("[x](>x)", try kt.renderFormat(arena, "{{ \"x\" | link:\">x\" }}", data, &d, format));
+        // A pre-encoded destination is legal input and passes through.
+        try testing.expectEqualStrings("[x](%3Cfoo%3E)", try kt.renderFormat(arena, "{{ \"x\" | link:\"%3Cfoo%3E\" }}", data, &d, format));
+    }
+    var d = kt.Diagnostic{};
+    try testing.expectEqualStrings("\"x\":a<b", try kt.renderFormat(arena, "{{ \"x\" | link:\"a<b\" }}", data, &d, .textile));
+    try assertTextileDialect();
+}
+
+test "unit: ASCII control characters in a link URL are refused" {
+    // A control byte in the destination stops CommonMark's link parse — the
+    // anchor silently disappears into literal text (issue #53). Refused like
+    // whitespace, whether it arrives through data or a template literal.
+    try renderErr("{{ \"x\" | link:u }}", "{\"u\":\"a\\u0001b\"}", "filter 'link' URL must not contain ASCII control characters");
+    try renderErr("{{ \"x\" | link:u }}", "{\"u\":\"a\\u0000b\"}", "filter 'link' URL must not contain ASCII control characters");
+    try renderErr("{{ \"x\" | link:u }}", "{\"u\":\"a\\u007fb\"}", "filter 'link' URL must not contain ASCII control characters");
+    try renderErr("{{ \"x\" | link:\"a\x01b\" }}", "{}", "filter 'link' URL must not contain ASCII control characters");
+    // Tab, CR and LF keep the older whitespace wording.
+    try renderErr("{{ \"x\" | link:u }}", "{\"u\":\"a\\tb\"}", "filter 'link' URL must not contain whitespace or a double quote");
+    try assertTextileDialect();
+}
+
+test "lint: a literal link URL with a leading '<' or control byte is a finding" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    var d = kt.Diagnostic{};
+    const angle = try kt.lintDocument(arena, "{{ name | link:\"<foo>\" }}", &d);
+    try testing.expectEqual(@as(usize, 1), angle.len);
+    try testing.expectEqualStrings("link-url-text", angle[0].rule);
+    try testing.expect(std.mem.indexOf(u8, angle[0].detail, "must not start with '<'") != null);
+    const control = try kt.lintDocument(arena, "{{ name | link:\"a\x01b\" }}", &d);
+    try testing.expectEqual(@as(usize, 1), control.len);
+    try testing.expectEqualStrings("link-url-text", control[0].rule);
+    try testing.expect(std.mem.indexOf(u8, control[0].detail, "control characters") != null);
+    try assertTextileDialect();
 }
 
 test "unit: the crossing repairs render and correctly nested blocks lint clean" {

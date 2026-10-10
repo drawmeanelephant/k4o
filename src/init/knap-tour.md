@@ -79,7 +79,8 @@ rather than a silent fallback. Quote the argument to force the literal.
 
 `link` refuses `javascript:`, `vbscript:` and `data:` URLs (they execute in
 a renderer); `http(s):`, `mailto:`, `ftp:`, `file:` and relative paths all
-pass. The URL must not contain whitespace or a double quote.
+pass. The URL must not contain whitespace, ASCII control characters or a
+double quote, and must not start with `<`.
 
 ## Logic: `{% if %} … {% endif %}`
 
