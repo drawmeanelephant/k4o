@@ -104,8 +104,9 @@ still differs from knap (see [Differential boundary](#differential-boundary)).
 Two rules cover values that are not plain text.
 
 **Comparing them.** `==` and `!=` are structural, not scalar-only. Arrays and
-objects are compared member by member, recursively, so a value always equals
-itself and two objects are equal regardless of key order:
+objects are compared member by member over an explicit work list, so a value
+always equals itself at any depth the data parser accepts and two objects are
+equal regardless of key order:
 
 ```text
 {% if a == b %}same{% else %}different{% endif %}   {# {"a":{"p":1,"q":2},"b":{"q":2,"p":1}} -> same #}
@@ -131,6 +132,11 @@ semantically equal but serialise differently produce different bytes.
 Reach for the field you want rather than the container: `{{ data.k }}` renders
 `1`, and `{{ items | list }}` renders the selected format. The JSON form is a deliberate
 escape hatch, not the recommended way to emit prose.
+
+One bound applies: an interpolated container nested deeper than **256 levels**
+fails with a render diagnostic (exit 1, empty stdout) instead of writing past
+the JSON writer's fixed-size stack. The knap 0.6.0 oracle rejects data that
+deep at parse time, so no template in the shared subset is affected.
 
 Floats are the one place where interpolation is lossy: `{"a":2.0}` renders as
 `2`, so scalar interpolation emits a whole-number float and the equal integer

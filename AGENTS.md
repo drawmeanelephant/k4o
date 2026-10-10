@@ -59,7 +59,10 @@ ReleaseSafe run, CLI byte-exactness, error-path empty-stdout checks, the
 
 - `src/parse.zig` — template → AST. Depth caps: 64 block nesting,
   32 condition parens, 256 condition expression depth.
-- `src/engine.zig` — evaluation, loop frames, `charge()` budget.
+- `src/engine.zig` — evaluation, loop frames, `charge()` budget. Value depth:
+  `==`/`!=`/`contains` walk iteratively (no depth cap — a value always equals
+  itself); `writeValue` refuses containers past `Stringify`'s 256-level stack
+  (`max_serialize_depth`) with a diagnostic, not a panic.
 - `src/filters.zig` — the 15-filter registry and per-format emitters,
   including the `link` URL rules (blocked schemes shared with lint).
 - `src/lint.zig` — education-grade findings over the shared parser.

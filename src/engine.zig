@@ -246,18 +246,18 @@ const Interp = struct {
             .neg => |inner| !(try self.evalCondDepth(inner.*, offset, depth + 1)),
             .and_ => |ab| (try self.evalCondDepth(ab.lhs.*, offset, depth + 1)) and (try self.evalCondDepth(ab.rhs.*, offset, depth + 1)),
             .or_ => |ab| (try self.evalCondDepth(ab.lhs.*, offset, depth + 1)) or (try self.evalCondDepth(ab.rhs.*, offset, depth + 1)),
-            .cmp => |c| self.evalCmp(c.op, c.lhs, c.rhs, offset),
+            .cmp => |c| self.evalCmp(c.op, c.lhs, c.rhs),
         };
     }
 
-    fn evalCmp(self: *Interp, op: parse.CmpOp, lhs_expr: parse.Expr, rhs_expr: parse.Expr, offset: usize) Error!bool {
+    fn evalCmp(self: *Interp, op: parse.CmpOp, lhs_expr: parse.Expr, rhs_expr: parse.Expr) Error!bool {
         const lhs = try self.resolveExpr(lhs_expr);
         const rhs = try self.resolveExpr(rhs_expr);
         return switch (op) {
-            .eq => self.valueEq(lhs, rhs, offset),
-            .ne => !(try self.valueEq(lhs, rhs, offset)),
+            .eq => self.valueEq(lhs, rhs),
+            .ne => !(try self.valueEq(lhs, rhs)),
             .lt, .le, .gt, .ge => orderedCompare(op, lhs, rhs),
-            .contains => self.containsCheck(lhs, rhs, offset),
+            .contains => self.containsCheck(lhs, rhs),
         };
     }
 
@@ -361,79 +361,74 @@ const Interp = struct {
     /// structurally, so a value is always equal to itself and two objects are
     /// equal regardless of key order. Used by `==`/`!=` and by `contains`
     /// when the haystack is an array.
-    fn valueEq(self: *Interp, a: std.json.Value, b: std.json.Value, offset: usize) Error!bool {
-        return self.valueEqDepth(a, b, offset, 0);
-    }
-
-    fn valueEqDepth(self: *Interp, a: std.json.Value, b: std.json.Value, offset: usize, depth: u32) Error!bool {
-        if (depth > max_compare_depth) {
-            return diag.fail(
-                self.alloc,
-                self.diag,
-                .render,
-                self.template,
-                offset,
-                "comparison nested too deeply to evaluate (max {d} levels)",
-                .{max_compare_depth},
-            );
+    ///
+    /// Iterative over an explicit work list: `std.json` accepts data far
+    /// deeper than any call stack survives, and a depth-capped recursion
+    /// either answered wrong or needed a diagnostic — the contract says a
+    /// value always equals itself, at any depth (issue #47).
+    fn valueEq(self: *Interp, a: std.json.Value, b: std.json.Value) Error!bool {
+        const Pair = struct { lhs: std.json.Value, rhs: std.json.Value };
+        var work: std.ArrayList(Pair) = .empty;
+        defer work.deinit(self.alloc);
+        try work.append(self.alloc, .{ .lhs = a, .rhs = b });
+        while (work.pop()) |pair| {
+            // A container pair is "equal so far" once its children are
+            // queued; each queued pair decides equality at its own level.
+            const equal_here = switch (pair.lhs) {
+                .null => pair.rhs == .null,
+                .bool => |x| switch (pair.rhs) {
+                    .bool => |y| x == y,
+                    else => false,
+                },
+                .integer => |x| switch (pair.rhs) {
+                    .integer => |y| x == y,
+                    .float => |y| @as(f64, @floatFromInt(x)) == y,
+                    else => false,
+                },
+                .float => |x| switch (pair.rhs) {
+                    .float => |y| x == y,
+                    .integer => |y| x == @as(f64, @floatFromInt(y)),
+                    else => false,
+                },
+                .number_string => |x| switch (pair.rhs) {
+                    .number_string, .string => |y| std.mem.eql(u8, x, y),
+                    else => false,
+                },
+                .string => |x| switch (pair.rhs) {
+                    .string, .number_string => |y| std.mem.eql(u8, x, y),
+                    else => false,
+                },
+                .array => |x| switch (pair.rhs) {
+                    .array => |y| blk: {
+                        if (x.items.len != y.items.len) break :blk false;
+                        for (x.items, y.items) |xi, yi| {
+                            try work.append(self.alloc, .{ .lhs = xi, .rhs = yi });
+                        }
+                        break :blk true;
+                    },
+                    else => false,
+                },
+                .object => |x| switch (pair.rhs) {
+                    // Key order is not significant: look each key up in the
+                    // other map rather than walking both in step.
+                    .object => |y| blk: {
+                        if (x.count() != y.count()) break :blk false;
+                        var it = x.iterator();
+                        while (it.next()) |entry| {
+                            const other = y.get(entry.key_ptr.*) orelse break :blk false;
+                            try work.append(self.alloc, .{ .lhs = entry.value_ptr.*, .rhs = other });
+                        }
+                        break :blk true;
+                    },
+                    else => false,
+                },
+            };
+            if (!equal_here) return false;
         }
-        return switch (a) {
-            .null => switch (b) {
-                .null => true,
-                else => false,
-            },
-            .bool => |x| switch (b) {
-                .bool => |y| x == y,
-                else => false,
-            },
-            .integer => |x| switch (b) {
-                .integer => |y| x == y,
-                .float => |y| @as(f64, @floatFromInt(x)) == y,
-                else => false,
-            },
-            .float => |x| switch (b) {
-                .float => |y| x == y,
-                .integer => |y| x == @as(f64, @floatFromInt(y)),
-                else => false,
-            },
-            .number_string => |x| switch (b) {
-                .number_string => |y| std.mem.eql(u8, x, y),
-                .string => |y| std.mem.eql(u8, x, y),
-                else => false,
-            },
-            .string => |x| switch (b) {
-                .string => |y| std.mem.eql(u8, x, y),
-                .number_string => |y| std.mem.eql(u8, x, y),
-                else => false,
-            },
-            .array => |x| switch (b) {
-                .array => |y| blk: {
-                    if (x.items.len != y.items.len) break :blk false;
-                    for (x.items, y.items) |xi, yi| {
-                        if (!(try self.valueEqDepth(xi, yi, offset, depth + 1))) break :blk false;
-                    }
-                    break :blk true;
-                },
-                else => false,
-            },
-            .object => |x| switch (b) {
-                // Key order is not significant: look each key up in the other
-                // map rather than walking both in step.
-                .object => |y| blk: {
-                    if (x.count() != y.count()) break :blk false;
-                    var it = x.iterator();
-                    while (it.next()) |entry| {
-                        const other = y.get(entry.key_ptr.*) orelse break :blk false;
-                        if (!(try self.valueEqDepth(entry.value_ptr.*, other, offset, depth + 1))) break :blk false;
-                    }
-                    break :blk true;
-                },
-                else => false,
-            },
-        };
+        return true;
     }
 
-    fn containsCheck(self: *Interp, haystack: std.json.Value, needle: std.json.Value, offset: usize) Error!bool {
+    fn containsCheck(self: *Interp, haystack: std.json.Value, needle: std.json.Value) Error!bool {
         switch (haystack) {
             .string => |h| switch (needle) {
                 .string => |n| return std.mem.indexOf(u8, h, n) != null,
@@ -442,7 +437,7 @@ const Interp = struct {
             },
             .array => |arr| {
                 for (arr.items) |item| {
-                    if (try self.valueEq(item, needle, offset)) return true;
+                    if (try self.valueEq(item, needle)) return true;
                 }
                 return false;
             },
@@ -473,13 +468,6 @@ fn truthy(v: std.json.Value) bool {
         .object => true,
     };
 }
-
-/// Guard on structural comparison. `std.json` parsing already bounds nesting,
-/// but values built by the engine (loop objects) are not depth-checked, so this
-/// keeps equality from becoming unbounded recursion — reported as a diagnostic
-/// rather than answered wrong, since "a value is always equal to itself" is
-/// part of the documented contract.
-const max_compare_depth: u32 = 128;
 
 /// Guard on `std.json.Stringify`: its nesting stack is fixed at this many
 /// container levels (`.checked_to_fixed_depth`) and panics past it, in safety
