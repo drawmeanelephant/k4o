@@ -212,6 +212,15 @@ check_cli_stderr "CLI rejects an empty --data= value" "$VERIFY_DIR/16-data-empty
 check_cli_stderr "a second positional suggests --data" "$VERIFY_DIR/17-second-positional" \
   "did you mean --data" "$BIN" render "$REPO/examples/heading.knap" "$REPO/examples/heading.json"
 
+# Deep JSON data: structural comparison answers correctly at any depth the
+# parser accepts (issue #47), and interpolating a container past Stringify's
+# fixed nesting stack is a diagnostic, not a panic (issue #48 — the crash was
+# exit 134 with a stack trace, which fails both assertions below).
+check_zero "deep data compares correctly at the CLI" "$VERIFY_DIR/28-deep-compare.log" \
+  bash -c "cd '$REPO' && '$BIN' render 'fixtures/logic-eq-deep.knap' --data 'fixtures/logic-eq-deep.json' | cmp -s - 'fixtures/logic-eq-deep.textile'"
+check_cli_stderr "over-deep interpolation is a diagnostic, not a panic" "$VERIFY_DIR/29-deep-serialize" \
+  "nested too deeply to serialize" "$BIN" render "$REPO/fixtures/errors/err-deep-serialize.knap" --data "$REPO/fixtures/errors/err-deep-serialize.json"
+
 # Nested loops multiply: 200 * 200 iterations of a two-byte body is ~80k
 # bytes, so a 100-byte cap must trip immediately with a diagnostic that names
 # the loop depth rather than dying on an allocator OOM.

@@ -85,10 +85,10 @@ documentation (see the clean-room record below):
 | Interpolation | `{{ title }}` | Whitespace optional (`{{title}}`). A value resolving to an object or array renders as compact JSON — see [Structured values](#structured-values). |
 | Paths | `{{ author.name }}`, `{{ authors[0].name }}`, `{{ metadata["article:section"] }}` | Dotted properties and bracket access with a number or a quoted key. Names may contain spaces in interpolation (`{{ First name }}`). |
 | Filters | `{{ value \| filter }}`, `{{ value \| filter:arg }}` | Chains run left to right: `{{ name \| italic \| h2 }}`. At most one argument; a bare word resolves against the data root, a quoted or numeric argument is a literal. See [Filter arguments](#filter-arguments). |
-| Literals | `{{ "text" }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}` | Usable as values and as condition operands. |
+| Literals | `{{ "text" }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}` | Usable as values and as condition operands. Inside a quoted literal, `\n`, `\t` and `\r` produce the control characters; `\"`, `\'` and `\\` produce the quote or backslash; any other `\x` drops the backslash (`\q` is `q`, `\x41` is `x41`), matching knap 0.6.0. The same unescaping applies to quoted filter arguments and bracket keys. |
 | Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. `==`/`!=` compare the whole value structurally, so objects and arrays work and key order does not matter; `<`/`<=`/`>`/`>=` are numbers and strings only. |
 | Truthiness | — | `false`, `null`, missing values, `""`, `0`, and `[]` are false; everything else true. |
-| Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Iterating a non-array is a render error. **Nested loops multiply** — see [Output size](#output-size). |
+| Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Inside a loop `loop` always means the loop object, so a variable bound as `{% for loop in array %}` is unreachable. Iterating a non-array is a render error. **Nested loops multiply** — see [Output size](#output-size). |
 | Comments | `{# … #}` | Single- or multi-line; removed from the output; never evaluated; unclosed is a syntax error. |
 | Missing values | — | Render as empty text; are false in conditions. |
 
@@ -104,8 +104,9 @@ still differs from knap (see [Differential boundary](#differential-boundary)).
 Two rules cover values that are not plain text.
 
 **Comparing them.** `==` and `!=` are structural, not scalar-only. Arrays and
-objects are compared member by member, recursively, so a value always equals
-itself and two objects are equal regardless of key order:
+objects are compared member by member over an explicit work list, so a value
+always equals itself at any depth the data parser accepts and two objects are
+equal regardless of key order:
 
 ```text
 {% if a == b %}same{% else %}different{% endif %}   {# {"a":{"p":1,"q":2},"b":{"q":2,"p":1}} -> same #}
@@ -131,6 +132,11 @@ semantically equal but serialise differently produce different bytes.
 Reach for the field you want rather than the container: `{{ data.k }}` renders
 `1`, and `{{ items | list }}` renders the selected format. The JSON form is a deliberate
 escape hatch, not the recommended way to emit prose.
+
+One bound applies: an interpolated container nested deeper than **256 levels**
+fails with a render diagnostic (exit 1, empty stdout) instead of writing past
+the JSON writer's fixed-size stack. The knap 0.6.0 oracle rejects data that
+deep at parse time, so no template in the shared subset is affected.
 
 Floats are the one place where interpolation is lossy: `{"a":2.0}` renders as
 `2`, so scalar interpolation emits a whole-number float and the equal integer
@@ -462,9 +468,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 91 passed, 0 failed |
-| `passthrough` | 0 passed, 91 failed |
-| `markdown` | 0 passed, 91 failed |
+| `normal` | 94 passed, 0 failed |
+| `passthrough` | 0 passed, 94 failed |
+| `markdown` | 0 passed, 94 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification
