@@ -1,9 +1,8 @@
-// Deep-value guards (engine side of dogbed#23 and dogbed#24). Interpolating
-// a value nested past std.json.Stringify's fixed 256-level stack must fail as
-// a template diagnostic — never a panic or an unchecked write — and a
-// structural comparison past the compare budget must fail rather than answer
-// "not equal" for a value compared with itself. The at-cap inputs keep
-// working, so the guards only trip past their documented limits.
+// Deep-value guards (engine side of dogbed#23 and dogbed#24, k4o issues
+// #47/#48). Interpolating a value nested past std.json.Stringify's fixed
+// 256-level stack fails as a template diagnostic — never a panic or an
+// unchecked write — and structural comparison walks the value iteratively,
+// so a value always equals itself at any depth the parser accepts.
 const std = @import("std");
 const kt = @import("k4o");
 const testing = std.testing;
@@ -116,52 +115,69 @@ test "deep value interpolation inside a loop body fails cleanly" {
     try expectErr("{% for x in xs %}{{ x }}{% endfor %}", buf.items, "value nested too deeply to serialize");
 }
 
-test "a value equals itself at the compare cap" {
+test "a value equals itself at any depth" {
+    // Issue #47's acceptance threshold: the old recursion budget mis-answered
+    // past 128 levels. The iterative walk has no ceiling the parser can
+    // exceed — 129 was the first wrong depth, 200 is the reported repro,
+    // and 100k sits orders of magnitude past any reasonable input.
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const data = try deepArrayJson(arena, 128);
-    try expectOk("{% if a == a %}same{% else %}diff{% endif %}", data, "same");
-    try expectOk("{% if a != a %}diff{% else %}same{% endif %}", data, "same");
-    try expectOk("{% if a == a %}same{% else %}diff{% endif %}", try deepObjectJson(arena, 128), "same");
+    for ([_]usize{ 128, 129, 200 }) |depth| {
+        const data = try deepArrayJson(arena, depth);
+        try expectOk("{% if a == a %}same{% else %}diff{% endif %}", data, "same");
+        try expectOk("{% if a != a %}diff{% else %}same{% endif %}", data, "same");
+    }
+    try expectOk("{% if a == a %}same{% else %}diff{% endif %}", try deepArrayJson(arena, 100_000), "same");
+    try expectOk("{% if a == a %}same{% else %}diff{% endif %}", try deepObjectJson(arena, 200), "same");
+    // The issue's `contains` repro: a's only member is a[0].
+    try expectOk(
+        "{% if a contains a[0] %}member{% else %}not-member{% endif %}",
+        try deepArrayJson(arena, 200),
+        "member",
+    );
 }
 
-test "comparison past the cap is a diagnostic, not a wrong answer" {
+test "deep values that differ still compare unequal" {
+    // Correctness runs both ways: the work list must find a real difference
+    // at depth, not just prove identity. The leaf differs (1 vs 2) under 200
+    // shared levels of nesting.
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const data = try deepArrayJson(arena, 129);
-    // Returning false here rendered 'diff' — a value stopped equaling itself.
-    try expectErr("{% if a == a %}same{% else %}diff{% endif %}", data, "comparison nested too deeply");
-    try expectErr("{% if a != a %}diff{% else %}same{% endif %}", data, "comparison nested too deeply");
-    try expectErr("{% if a == a %}same{% else %}diff{% endif %}", try deepObjectJson(arena, 129), "comparison nested too deeply");
-}
-
-test "contains over an array haystack reports deep comparisons" {
-    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    // xs holds one member equal to a; at the cap the match still works,
-    // past it the comparison must surface the diagnostic.
     var buf: std.ArrayList(u8) = .empty;
-    const deep = try deepArrayJson(arena, 128);
-    try buf.appendSlice(arena, "{\"xs\":[");
-    try buf.appendSlice(arena, deep[5 .. deep.len - 1]);
-    try buf.appendSlice(arena, "],\"a\":");
-    try buf.appendSlice(arena, deep[5 .. deep.len - 1]);
+    try buf.appendSlice(arena, "{\"a\":");
+    for (0..200) |_| try buf.append(arena, '[');
+    try buf.append(arena, '1');
+    for (0..200) |_| try buf.append(arena, ']');
+    try buf.appendSlice(arena, ",\"b\":");
+    for (0..200) |_| try buf.append(arena, '[');
+    try buf.append(arena, '2');
+    for (0..200) |_| try buf.append(arena, ']');
     try buf.append(arena, '}');
-    try expectOk("{% if xs contains a %}hit{% else %}miss{% endif %}", buf.items, "hit");
-    const deep129 = try deepArrayJson(arena, 129);
-    var buf2: std.ArrayList(u8) = .empty;
-    try buf2.appendSlice(arena, "{\"xs\":[");
-    try buf2.appendSlice(arena, deep129[5 .. deep129.len - 1]);
-    try buf2.appendSlice(arena, "],\"a\":");
-    try buf2.appendSlice(arena, deep129[5 .. deep129.len - 1]);
-    try buf2.append(arena, '}');
-    try expectErr("{% if xs contains a %}hit{% else %}miss{% endif %}", buf2.items, "comparison nested too deeply");
+    try expectOk("{% if a == b %}same{% else %}diff{% endif %}", buf.items, "diff");
+    try expectOk("{% if a != b %}diff{% else %}same{% endif %}", buf.items, "diff");
+    try expectOk("{% if a contains b %}member{% else %}not-member{% endif %}", buf.items, "not-member");
 }
 
-test "deep comparisons inside nested loops fail cleanly" {
+test "contains over an array haystack matches deep members" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // xs holds one member equal to a; the match works at any depth now.
+    for ([_]usize{ 128, 129, 200 }) |depth| {
+        var buf: std.ArrayList(u8) = .empty;
+        const deep = try deepArrayJson(arena, depth);
+        try buf.appendSlice(arena, "{\"xs\":[");
+        try buf.appendSlice(arena, deep[5 .. deep.len - 1]);
+        try buf.appendSlice(arena, "],\"a\":");
+        try buf.appendSlice(arena, deep[5 .. deep.len - 1]);
+        try buf.append(arena, '}');
+        try expectOk("{% if xs contains a %}hit{% else %}miss{% endif %}", buf.items, "hit");
+    }
+}
+
+test "deep comparisons inside nested loops evaluate" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -170,5 +186,5 @@ test "deep comparisons inside nested loops fail cleanly" {
     try buf.appendSlice(arena, "{\"xs\":[");
     try buf.appendSlice(arena, deep[5 .. deep.len - 1]);
     try buf.appendSlice(arena, "]}");
-    try expectErr("{% for x in xs %}{% if x == x %}y{% endif %}{% endfor %}", buf.items, "comparison nested too deeply");
+    try expectOk("{% for x in xs %}{% if x == x %}y{% endif %}{% endfor %}", buf.items, "y");
 }
