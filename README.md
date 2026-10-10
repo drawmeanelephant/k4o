@@ -85,7 +85,7 @@ documentation (see the clean-room record below):
 | Interpolation | `{{ title }}` | Whitespace optional (`{{title}}`). A value resolving to an object or array renders as compact JSON — see [Structured values](#structured-values). |
 | Paths | `{{ author.name }}`, `{{ authors[0].name }}`, `{{ metadata["article:section"] }}` | Dotted properties and bracket access with a number or a quoted key. Names may contain spaces in interpolation (`{{ First name }}`). |
 | Filters | `{{ value \| filter }}`, `{{ value \| filter:arg }}` | Chains run left to right: `{{ name \| italic \| h2 }}`. At most one argument; a bare word resolves against the data root, a quoted or numeric argument is a literal. See [Filter arguments](#filter-arguments). |
-| Literals | `{{ "text" }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}` | Usable as values and as condition operands. |
+| Literals | `{{ "text" }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}` | Usable as values and as condition operands. Inside a quoted literal, `\n`, `\t` and `\r` produce the control characters; `\"`, `\'` and `\\` produce the quote or backslash; any other `\x` drops the backslash (`\q` is `q`, `\x41` is `x41`), matching knap 0.6.0. The same unescaping applies to quoted filter arguments and bracket keys. |
 | Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. `==`/`!=` compare the whole value structurally, so objects and arrays work and key order does not matter; `<`/`<=`/`>`/`>=` are numbers and strings only. |
 | Truthiness | — | `false`, `null`, missing values, `""`, `0`, and `[]` are false; everything else true. |
 | Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Iterating a non-array is a render error. **Nested loops multiply** — see [Output size](#output-size). |
@@ -462,9 +462,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 85 passed, 0 failed |
-| `passthrough` | 0 passed, 85 failed |
-| `markdown` | 0 passed, 85 failed |
+| `normal` | 86 passed, 0 failed |
+| `passthrough` | 0 passed, 86 failed |
+| `markdown` | 0 passed, 86 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification

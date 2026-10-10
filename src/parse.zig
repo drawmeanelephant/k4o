@@ -515,7 +515,14 @@ const Scanner = struct {
         var i: usize = 0;
         while (i < raw.len) {
             if (raw[i] == '\\' and i + 1 < raw.len) {
-                try buf.append(s.p.alloc, raw[i + 1]);
+                // knap 0.6.0 maps only \n \t \r to control bytes; every
+                // other \X drops the backslash (\x41 -> x41, not 'A').
+                try buf.append(s.p.alloc, switch (raw[i + 1]) {
+                    'n' => '\n',
+                    't' => '\t',
+                    'r' => '\r',
+                    else => raw[i + 1],
+                });
                 i += 2;
             } else {
                 try buf.append(s.p.alloc, raw[i]);

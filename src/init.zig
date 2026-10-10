@@ -36,7 +36,7 @@ pub const FileDef = struct {
 };
 
 pub const files = [_]FileDef{
-    .{ .name = "knap-tour.md", .version = 2, .content = @embedFile("init/knap-tour.md") },
+    .{ .name = "knap-tour.md", .version = 3, .content = @embedFile("init/knap-tour.md") },
     .{ .name = "knap-templates.md", .version = 2, .content = @embedFile("init/knap-templates.md") },
     .{ .name = "knap-examples.md", .version = 1, .content = @embedFile("init/knap-examples.md") },
     .{ .name = "knap-gotchas.md", .version = 3, .content = @embedFile("init/knap-gotchas.md") },

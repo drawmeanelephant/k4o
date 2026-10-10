@@ -43,6 +43,7 @@ const cases = [_]Case{
     .{ .name = "var-number", .template = @embedFile("fixtures/var-number.knap"), .data = @embedFile("fixtures/var-number.json"), .expected = @embedFile("fixtures/var-number.textile") },
     .{ .name = "var-float-large", .template = @embedFile("fixtures/var-float-large.knap"), .data = @embedFile("fixtures/var-float-large.json"), .expected = @embedFile("fixtures/var-float-large.textile") },
     .{ .name = "var-json-object", .template = @embedFile("fixtures/var-json-object.knap"), .data = @embedFile("fixtures/var-json-object.json"), .expected = @embedFile("fixtures/var-json-object.textile") },
+    .{ .name = "lit-string-escapes", .template = @embedFile("fixtures/lit-string-escapes.knap"), .data = @embedFile("fixtures/lit-string-escapes.json"), .expected = @embedFile("fixtures/lit-string-escapes.textile") },
     .{ .name = "filter-h1-basic", .template = @embedFile("fixtures/filter-h1-basic.knap"), .data = @embedFile("fixtures/filter-h1-basic.json"), .expected = @embedFile("fixtures/filter-h1-basic.textile") },
     .{ .name = "filter-h2-basic", .template = @embedFile("fixtures/filter-h2-basic.knap"), .data = @embedFile("fixtures/filter-h2-basic.json"), .expected = @embedFile("fixtures/filter-h2-basic.textile") },
     .{ .name = "filter-h3-basic", .template = @embedFile("fixtures/filter-h3-basic.knap"), .data = @embedFile("fixtures/filter-h3-basic.json"), .expected = @embedFile("fixtures/filter-h3-basic.textile") },
@@ -1261,6 +1262,29 @@ test "unit: number and string literals" {
 
 test "unit: escaped quote in string literal" {
     try renderOk("{{ \"a\\\"b\" | bold }}", "{}", "*a\"b*");
+}
+
+test "unit: string literal escapes emit n t r and drop other backslashes" {
+    // knap 0.6.0 parity: only \n \t \r become control bytes.
+    try renderOk("{{ \"a\\nb\" }}", "{}", "a\nb");
+    try renderOk("{{ \"a\\tb\" }}", "{}", "a\tb");
+    try renderOk("{{ \"a\\rb\" }}", "{}", "a\rb");
+    try renderOk("{{ 'a\\nb' }}", "{}", "a\nb");
+    // Every other \X drops the backslash rather than decoding (\x41 -> x41,
+    // not 'A'; \u0041 -> u0041). Quotes and the backslash itself follow the
+    // same rule.
+    try renderOk("{{ \"a\\qb\" }}", "{}", "aqb");
+    try renderOk("{{ \"a\\0b\" }}", "{}", "a0b");
+    try renderOk("{{ \"a\\x41b\" }}", "{}", "ax41b");
+    try renderOk("{{ \"a\\u0041b\" }}", "{}", "au0041b");
+    try renderOk("{{ \"a\\\"b\" }}", "{}", "a\"b");
+    try renderOk("{{ 'a\\'b' }}", "{}", "a'b");
+    try renderOk("{{ \"a\\\\b\" }}", "{}", "a\\b");
+    // Quoted filter arguments unescape through the same path: \q is a plain
+    // 'q' in the URL, and a real newline trips the link whitespace check
+    // instead of silently vanishing.
+    try renderOk("{{ \"x\" | link:\"a\\qb\" }}", "{}", "\"x\":aqb");
+    try renderErr("{{ \"x\" | link:\"a\\nb\" }}", "{}", "must not contain whitespace");
 }
 
 test "unit: missing variable is false in conditions" {
