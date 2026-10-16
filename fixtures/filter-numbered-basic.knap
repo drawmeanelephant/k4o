@@ -1,1 +1,1 @@
-{{ steps | numbered }}
+{{ steps | list:numbered }}

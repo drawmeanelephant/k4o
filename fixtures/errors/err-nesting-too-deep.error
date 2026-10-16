@@ -1,1 +1,1 @@
-syntax error at line 1, column 646: nesting too deep (max 64 levels)
+syntax error at line 1, column 641: unclosed if block (missing '{% endif %}')

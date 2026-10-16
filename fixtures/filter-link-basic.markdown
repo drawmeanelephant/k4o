@@ -1,1 +1,1 @@
-See [Example](https://example.com/) for more.
+See [https://example.com/](Example) for more.

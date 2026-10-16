@@ -1,7 +1,15 @@
-//! Template engine: parse + evaluate into Textile, CommonMark or GFM tables.
+//! Template engine: parse + evaluate into CommonMark (or Oliver-targeted
+//! HTML passthrough).
 //!
 //! Output and all temporary values are allocated with `alloc`; callers
 //! typically pass an arena allocator and free everything at once.
+//!
+//! Values flow through pipelines as `*const std.json.Value` handles: data
+//! values are pointers into the parsed tree, produced values are arena
+//! slots. Container identity (JS `===` semantics for `==`, `!=`,
+//! `contains`) is pointer identity on those handles — two structurally
+//! equal but separately parsed objects compare unequal, matching the
+//! oracle.
 
 const std = @import("std");
 const build_options = @import("build_options");
@@ -11,8 +19,12 @@ const filters = @import("filters.zig");
 
 pub const Error = error{ Template, OutOfMemory };
 
-const passthrough_mode = std.mem.eql(u8, build_options.engine_mode, "passthrough");
-const default_format: filters.Format = if (std.mem.eql(u8, build_options.engine_mode, "markdown")) .markdown else .textile;
+const mode = build_options.engine_mode;
+const passthrough_mode = std.mem.eql(u8, mode, "passthrough");
+/// `noeval`: tags emit their literal source instead of evaluating — a
+/// red-verification mutant that must fail every test.
+const noeval_mode = std.mem.eql(u8, mode, "noeval");
+const default_format: filters.Format = if (std.mem.eql(u8, mode, "oliver")) .oliver else .markdown;
 pub const Format = filters.Format;
 
 /// Default ceiling on rendered output, in bytes.
@@ -23,6 +35,10 @@ pub const Format = filters.Format;
 /// run out after minutes of work. Override with `renderWithLimit`, or from
 /// the CLI with `--max-output`.
 pub const default_max_output: usize = 256 * 1024 * 1024;
+
+/// The oracle rejects data (and produced values) nested deeper than this —
+/// `LIMIT_EXCEEDED: Template exceeded maxDepth`.
+pub const max_value_depth: u32 = 100;
 
 /// Renders `template` with `data` (a JSON object whose properties are the
 /// variables) and returns the rendered bytes, allocated with `alloc`.
@@ -71,6 +87,10 @@ pub fn renderFormatWithLimit(
         // `zig build test -Dengine-mode=passthrough` must fail.
         return try alloc.dupe(u8, template);
     }
+    if (noeval_mode) {
+        // Red-verification mutant: tags are never evaluated.
+        return try alloc.dupe(u8, template);
+    }
 
     const doc = try parse.parseDocument(alloc, template, d);
     var out = std.Io.Writer.Allocating.init(alloc);
@@ -83,18 +103,25 @@ pub fn renderFormatWithLimit(
         .format = format,
         .max_output = max_output,
     };
+    try interp.checkDepth(data, 1);
     try interp.evalNodes(doc.nodes);
     return out.written();
 }
 
+const Scope = std.StringArrayHashMapUnmanaged(*const std.json.Value);
+
 const LoopFrame = struct {
     name: []const u8,
+    /// `{var}_index` — the back-compat 0-based loop counter.
+    index_name: []const u8,
     items: []const std.json.Value,
     index: usize,
     offset: usize,
+    loop_obj: ?*std.json.Value = null,
+    scope: Scope,
 };
 
-const Interp = struct {
+pub const Interp = struct {
     alloc: std.mem.Allocator,
     template: []const u8,
     diag: *diag.Diagnostic,
@@ -102,8 +129,37 @@ const Interp = struct {
     root: std.json.Value,
     format: Format,
     loops: std.ArrayList(LoopFrame) = .empty,
+    globals: Scope = .empty,
     max_output: usize,
     written: usize = 0,
+    /// When a standalone `{% for %}` opened the loop, the first emitted
+    /// run of spaces/tabs is stripped — and if that run ends at a newline
+    /// the newline goes with it.
+    strip_leading: bool = false,
+
+    pub fn failRender(
+        self: *Interp,
+        offset: usize,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) error{Template} {
+        return diag.fail(self.alloc, self.diag, .render, self.template, offset, fmt, args);
+    }
+
+    /// The oracle's LIMIT_EXCEEDED for values deeper than max_value_depth.
+    fn checkDepth(self: *Interp, v: std.json.Value, depth: u32) Error!void {
+        switch (v) {
+            .array => |a| {
+                if (depth > max_value_depth) return self.failRender(0, "value nested deeper than the {d}-level limit", .{max_value_depth});
+                for (a.items) |item| try self.checkDepth(item, depth + 1);
+            },
+            .object => |o| {
+                if (depth > max_value_depth) return self.failRender(0, "value nested deeper than the {d}-level limit", .{max_value_depth});
+                for (o.values()) |item| try self.checkDepth(item, depth + 1);
+            },
+            else => {},
+        }
+    }
 
     /// Charges `add` bytes against the output budget. Every byte reaches the
     /// output through here, so the cap trips at the moment it is crossed
@@ -127,23 +183,28 @@ const Interp = struct {
         self.written = next;
     }
 
-    fn put(self: *Interp, bytes: []const u8) Error!void {
+    fn put(self: *Interp, bytes_in: []const u8) Error!void {
+        var bytes = bytes_in;
+        if (self.strip_leading) {
+            var n: usize = 0;
+            while (n < bytes.len and (bytes[n] == ' ' or bytes[n] == '\t')) n += 1;
+            if (n > 0) {
+                self.strip_leading = false;
+                if (n < bytes.len and bytes[n] == '\n') n += 1;
+                bytes = bytes[n..];
+                if (bytes.len == 0) return;
+            }
+        }
         try self.charge(bytes.len);
         self.out.writer.writeAll(bytes) catch return error.OutOfMemory;
     }
 
-    fn putFmt(self: *Interp, buf: []u8, comptime fmt: []const u8, args: anytype) Error!void {
-        const text = std.fmt.bufPrint(buf, fmt, args) catch return error.OutOfMemory;
-        try self.put(text);
+    /// Store a value in the arena and return its handle.
+    pub fn make(self: *Interp, v: std.json.Value) error{OutOfMemory}!*const std.json.Value {
+        const ptr = try self.alloc.create(std.json.Value);
+        ptr.* = v;
+        return ptr;
     }
-
-    /// Worst-case `{d}` expansion of an f64 in decimal notation: a sign,
-    /// 309 integer digits (DBL_MAX), a decimal point and 324 fractional
-    /// digits (the denormal minimum), plus headroom for separators.
-    const max_float_text = 512;
-
-    /// Worst-case `{d}` expansion of an i64: sign plus 19 digits.
-    const max_int_text = 32;
 
     fn evalNodes(self: *Interp, nodes: []const parse.Node) Error!void {
         for (nodes) |node| {
@@ -152,18 +213,30 @@ const Interp = struct {
                 .output => |pl| try self.evalOutput(pl),
                 .ifelse => |chain| try self.evalIf(chain),
                 .loop => |ln| try self.evalLoop(ln),
+                .set => |sn| try self.evalSet(sn),
             }
         }
     }
 
-    fn evalOutput(self: *Interp, pl: parse.Pipeline) Error!void {
-        var value = try self.resolveExpr(pl.value);
-        var markup = false;
-        for (pl.filters) |call| {
-            value = try filters.apply(self.alloc, self.diag, self.template, call, value, self.root, self.format, markup);
-            markup = true;
+    fn evalOutput(self: *Interp, expr: parse.Expr) Error!void {
+        const value = try self.evalExpr(expr);
+        try self.writeValue(value);
+    }
+
+    /// `{% set name = expr %}` — ordered assignment into the innermost
+    /// scope (inside a loop that is the current iteration's scope; `{% if %}`
+    /// does not open a scope).
+    fn evalSet(self: *Interp, sn: parse.SetNode) Error!void {
+        const value = try self.evalExpr(sn.expr);
+        const scope = self.currentScope();
+        try scope.put(self.alloc, sn.name, value);
+    }
+
+    fn currentScope(self: *Interp) *Scope {
+        if (self.loops.items.len > 0) {
+            return &self.loops.items[self.loops.items.len - 1].scope;
         }
-        try self.writeValue(value, pl.offset);
+        return &self.globals;
     }
 
     fn evalIf(self: *Interp, chain: parse.IfChain) Error!void {
@@ -181,9 +254,11 @@ const Interp = struct {
     }
 
     fn evalLoop(self: *Interp, ln: parse.LoopNode) Error!void {
-        const list = try self.resolveExpr(ln.list);
-        const arr = switch (list) {
+        const list = try self.evalExpr(ln.list);
+        const arr = switch (list.*) {
             .array => |a| a,
+            // Missing and null iterate as empty; anything else is an error.
+            .null => return,
             else => return diag.fail(
                 self.alloc,
                 self.diag,
@@ -191,30 +266,43 @@ const Interp = struct {
                 self.template,
                 ln.offset,
                 "for-loop expects an array to iterate, but got {s}",
-                .{valueTypeName(list)},
+                .{valueTypeName(list.*)},
             ),
         };
-        try self.loops.append(self.alloc, .{
+        const index_name = try std.fmt.allocPrint(self.alloc, "{s}_index", .{ln.var_name});
+        const frame = LoopFrame{
             .name = ln.var_name,
+            .index_name = index_name,
             .items = arr.items,
             .index = 0,
             .offset = ln.offset,
-        });
+            .scope = .empty,
+        };
+        try self.loops.append(self.alloc, frame);
         defer _ = self.loops.pop();
         var i: usize = 0;
         while (i < arr.items.len) : (i += 1) {
             self.loops.items[self.loops.items.len - 1].index = i;
-            if (self.format != .textile and i > 0) try self.put("\n");
-            const start = self.out.written().len;
+            if (i > 0) try self.put("\n");
+            // A standalone `{% for %}` strips the body's leading
+            // spaces/tabs once — on the first emitted iteration. When the
+            // run reaches a newline the newline goes with it.
+            if (i == 0 and ln.strip_first) self.strip_leading = true;
             try self.evalNodes(ln.body);
-            // Knap joins loop iterations with a line break, removing one
-            // body-final newline first. Keep the Textile whitespace unchanged.
-            if (self.format != .textile and self.out.written().len > start and
-                self.out.written()[self.out.written().len - 1] == '\n')
-            {
-                self.out.writer.end -= 1;
-                self.written -= 1;
-            }
+            self.strip_leading = false;
+        }
+        // Iterations separate with a newline, and a loop trims its
+        // trailing spaces/tabs once — the whitespace before `{% endfor
+        // %}` lands between iterations, not after the last one.
+        var end = self.out.written().len;
+        while (end > 0) {
+            const c = self.out.written()[end - 1];
+            if (c != ' ' and c != '\t') break;
+            end -= 1;
+        }
+        if (end != self.out.written().len) {
+            self.written -= self.out.written().len - end;
+            self.out.writer.end = end;
         }
     }
 
@@ -242,7 +330,7 @@ const Interp = struct {
             );
         }
         return switch (cond) {
-            .operand => |e| truthy(try self.resolveExpr(e)),
+            .operand => |e| truthy((try self.evalExpr(e)).*),
             .neg => |inner| !(try self.evalCondDepth(inner.*, offset, depth + 1)),
             .and_ => |ab| (try self.evalCondDepth(ab.lhs.*, offset, depth + 1)) and (try self.evalCondDepth(ab.rhs.*, offset, depth + 1)),
             .or_ => |ab| (try self.evalCondDepth(ab.lhs.*, offset, depth + 1)) or (try self.evalCondDepth(ab.rhs.*, offset, depth + 1)),
@@ -251,195 +339,331 @@ const Interp = struct {
     }
 
     fn evalCmp(self: *Interp, op: parse.CmpOp, lhs_expr: parse.Expr, rhs_expr: parse.Expr) Error!bool {
-        const lhs = try self.resolveExpr(lhs_expr);
-        const rhs = try self.resolveExpr(rhs_expr);
+        const lhs = try self.evalExpr(lhs_expr);
+        const rhs = try self.evalExpr(rhs_expr);
         return switch (op) {
             .eq => self.valueEq(lhs, rhs),
             .ne => !(try self.valueEq(lhs, rhs)),
-            .lt, .le, .gt, .ge => orderedCompare(op, lhs, rhs),
+            .lt, .le, .gt, .ge => orderedCompare(op, lhs.*, rhs.*),
             .contains => self.containsCheck(lhs, rhs),
         };
     }
 
-    fn resolveExpr(self: *Interp, expr: parse.Expr) Error!std.json.Value {
-        return switch (expr) {
-            .literal => |lit| literalValue(lit),
+    /// `a ?? b` — first truthy term wins; filters bind before `??`.
+    pub fn evalExpr(self: *Interp, expr: parse.Expr) Error!*const std.json.Value {
+        if (expr.terms.len == 1) return self.evalPipeline(expr.terms[0]);
+        for (expr.terms) |term| {
+            const v = try self.evalPipeline(term);
+            if (truthy(v.*)) return v;
+        }
+        // All terms falsy: the last one is the result (it is already falsy).
+        return self.evalPipeline(expr.terms[expr.terms.len - 1]);
+    }
+
+    pub fn evalPipeline(self: *Interp, pl: parse.Pipeline) Error!*const std.json.Value {
+        var value = try self.evalPrimary(pl.value);
+        for (pl.filters) |call| {
+            value = try filters.apply(self, call, value);
+        }
+        return value;
+    }
+
+    fn evalPrimary(self: *Interp, primary: parse.Primary) Error!*const std.json.Value {
+        return switch (primary) {
+            .literal => |lit| self.make(literalValue(lit)),
             .path => |p| self.resolvePath(p),
         };
     }
 
-    fn resolvePath(self: *Interp, path: parse.Path) Error!std.json.Value {
-        var current: std.json.Value = .{ .null = {} };
-        var found = false;
+    /// A missing/null scalar: used where knap reads `undefined`.
+    fn nullValue(self: *Interp) error{OutOfMemory}!*const std.json.Value {
+        return self.make(.{ .null = {} });
+    }
 
-        // Loop variables shadow the data root, innermost first. Inside a
-        // loop `loop` is always the loop object, so a variable named `loop`
-        // (`{% for loop in xs %}`) is unreachable — knap semantics.
+    fn resolvePath(self: *Interp, path: parse.Path) Error!*const std.json.Value {
+        var current: ?*const std.json.Value = null;
+
+        // Loop variables shadow scopes and the data root, innermost first.
+        // Inside a loop `loop` is always the loop object and `{var}_index`
+        // the 0-based counter — a variable with those names is unreachable.
         var frame_index = self.loops.items.len;
         while (frame_index > 0) {
             frame_index -= 1;
             const frame = &self.loops.items[frame_index];
             if (std.mem.eql(u8, path.root, "loop")) {
                 current = try self.loopObject(frame);
-                found = true;
                 break;
             }
             if (std.mem.eql(u8, path.root, frame.name)) {
-                current = frame.items[frame.index];
-                found = true;
+                current = &frame.items[frame.index];
+                break;
+            }
+            if (std.mem.eql(u8, path.root, frame.index_name)) {
+                current = try self.make(.{ .integer = @intCast(frame.index) });
                 break;
             }
         }
-        if (!found) {
-            switch (self.root) {
-                .object => |obj| current = obj.get(path.root) orelse .{ .null = {} },
-                else => current = .{ .null = {} },
+        if (current == null) {
+            var scope_index = self.loops.items.len;
+            while (scope_index > 0) {
+                scope_index -= 1;
+                if (self.loops.items[scope_index].scope.get(path.root)) |v| {
+                    current = v;
+                    break;
+                }
             }
         }
+        if (current == null) {
+            if (self.globals.get(path.root)) |v| current = v;
+        }
+        if (current == null) {
+            switch (self.root) {
+                .object => |obj| current = obj.getPtr(path.root),
+                else => {},
+            }
+        }
+        var value = current orelse return self.nullValue();
 
         for (path.steps) |step| {
-            current = switch (step) {
-                .key => |k| switch (current) {
-                    .object => |obj| obj.get(k) orelse .{ .null = {} },
-                    else => .{ .null = {} },
+            switch (step) {
+                .key => |k| value = switch (value.*) {
+                    .object => |obj| obj.getPtr(k) orelse return self.nullValue(),
+                    else => return self.nullValue(),
                 },
-                .index => |idx| switch (current) {
-                    .array => |arr| if (idx < arr.items.len) arr.items[@intCast(idx)] else .{ .null = {} },
-                    else => .{ .null = {} },
+                .index => |idx| value = switch (value.*) {
+                    .array => |arr| if (idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue(),
+                    else => return self.nullValue(),
                 },
-            };
+                .expr => |pipe| {
+                    const key = try self.evalPipeline(pipe.*);
+                    value = switch (key.*) {
+                        .string => |k| switch (value.*) {
+                            .object => |obj| obj.getPtr(k) orelse return self.nullValue(),
+                            .array => |arr| blk: {
+                                // "0" indexes arrays like 0 does.
+                                const idx = std.fmt.parseInt(u64, k, 10) catch return self.nullValue();
+                                break :blk if (idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue();
+                            },
+                            else => return self.nullValue(),
+                        },
+                        .integer => |idx| switch (value.*) {
+                            .array => |arr| if (idx >= 0 and idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue(),
+                            else => return self.nullValue(),
+                        },
+                        .float => |f| switch (value.*) {
+                            .array => |arr| blk: {
+                                if (f < 0 or f != @floor(f) or f >= @as(f64, @floatFromInt(arr.items.len))) return self.nullValue();
+                                break :blk &arr.items[@intFromFloat(f)];
+                            },
+                            else => return self.nullValue(),
+                        },
+                        else => return self.nullValue(),
+                    };
+                },
+            }
         }
-        return current;
+        return value;
     }
 
-    fn loopObject(self: *Interp, frame: *const LoopFrame) Error!std.json.Value {
-        var map: std.json.ObjectMap = .empty;
+    fn loopObject(self: *Interp, frame: *LoopFrame) Error!*const std.json.Value {
+        // One object per frame keeps `loop == loop` identity; the
+        // index-dependent fields refresh each iteration.
+        const v = frame.loop_obj orelse blk: {
+            const ptr = try self.alloc.create(std.json.Value);
+            ptr.* = .{ .object = .empty };
+            frame.loop_obj = ptr;
+            break :blk ptr;
+        };
+        var map = &v.object;
         try map.put(self.alloc, "index", .{ .integer = @intCast(frame.index + 1) });
         try map.put(self.alloc, "index0", .{ .integer = @intCast(frame.index) });
         try map.put(self.alloc, "first", .{ .bool = frame.index == 0 });
         try map.put(self.alloc, "last", .{ .bool = frame.index + 1 == frame.items.len });
         try map.put(self.alloc, "length", .{ .integer = @intCast(frame.items.len) });
-        return .{ .object = map };
+        return v;
     }
 
-    fn writeValue(self: *Interp, v: std.json.Value, offset: usize) Error!void {
-        switch (v) {
+    /// Evaluate a filter parameter to a value. A bare root word that fails
+    /// to resolve becomes its own text (`link:url` -> "url" when `url` is
+    /// not in the data); quoted strings and other literals stay literal.
+    pub fn evalParam(self: *Interp, expr: *const parse.Expr) Error!*const std.json.Value {
+        if (expr.terms.len == 1) {
+            const term = expr.terms[0];
+            switch (term.value) {
+                .path => |p| {
+                    const v = try self.resolvePath(p);
+                    if (v.* == .null) {
+                        return self.make(.{ .string = try self.pathText(p) });
+                    }
+                    return v;
+                },
+                else => {},
+            }
+        }
+        return self.evalExpr(expr.*);
+    }
+
+    fn pathText(self: *Interp, p: parse.Path) Error![]const u8 {
+        var buf = std.ArrayList(u8).empty;
+        try buf.appendSlice(self.alloc, p.root);
+        for (p.steps) |step| {
+            switch (step) {
+                .key => |k| {
+                    try buf.append(self.alloc, '.');
+                    try buf.appendSlice(self.alloc, k);
+                },
+                .index => |idx| {
+                    const t = try std.fmt.allocPrint(self.alloc, "[{d}]", .{idx});
+                    try buf.appendSlice(self.alloc, t);
+                },
+                .expr => try buf.appendSlice(self.alloc, "[]"),
+            }
+        }
+        return buf.toOwnedSlice(self.alloc);
+    }
+
+    /// Write a value at the end of a `{{ }}` pipeline.
+    ///
+    /// Scalars print JavaScript-style; a single-element array holding a
+    /// primitive (string, number, boolean — not null) unwraps to its
+    /// element (`{{ ["a"] }}` renders `a`); other containers serialize as
+    /// compact JSON.
+    fn writeValue(self: *Interp, v: *const std.json.Value) Error!void {
+        switch (v.*) {
             .null => {},
             .bool => |b| try self.put(if (b) "true" else "false"),
             .integer => |i| {
-                var buf: [max_int_text]u8 = undefined;
-                try self.putFmt(&buf, "{d}", .{i});
+                var buf: [32]u8 = undefined;
+                const text = std.fmt.bufPrint(&buf, "{d}", .{i}) catch return error.OutOfMemory;
+                try self.put(text);
             },
-            .float => |f| {
-                var buf: [max_float_text]u8 = undefined;
-                try self.putFmt(&buf, "{d}", .{f});
+            .float => |f| try self.put(try jsFloat(self.alloc, f)),
+            .number_string => |s| {
+                const f = std.fmt.parseFloat(f64, s) catch {
+                    try self.put(s);
+                    return;
+                };
+                try self.put(try jsFloat(self.alloc, f));
             },
-            .number_string => |s| try self.put(s),
             .string => |s| try self.put(s),
-            .array, .object => {
-                // Stringify nests on a fixed-size stack and panics past its
-                // limit, so check first and fail as a template diagnostic.
-                if (serializeDepthExceeded(v, 0)) {
-                    return diag.fail(
-                        self.alloc,
-                        self.diag,
-                        .render,
-                        self.template,
-                        offset,
-                        "value nested too deeply to serialize (max {d} levels)",
-                        .{max_serialize_depth},
-                    );
+            .array => |arr| {
+                if (arr.items.len == 1) {
+                    switch (arr.items[0]) {
+                        .bool, .integer, .float, .number_string, .string => {
+                            const single = try self.make(arr.items[0]);
+                            return self.writeValue(single);
+                        },
+                        else => {},
+                    }
                 }
-                // Buffer then `put`, so structured values are charged against
-                // the output budget instead of writing straight past it.
                 var buf: std.Io.Writer.Allocating = .init(self.alloc);
-                std.json.Stringify.value(v, .{}, &buf.writer) catch return error.OutOfMemory;
+                try self.jsStringify(v, &buf);
+                try self.put(buf.written());
+            },
+            .object => {
+                var buf: std.Io.Writer.Allocating = .init(self.alloc);
+                try self.jsStringify(v, &buf);
                 try self.put(buf.written());
             },
         }
     }
 
-    /// Equality over the whole value tree. Arrays and objects compare
-    /// structurally, so a value is always equal to itself and two objects are
-    /// equal regardless of key order. Used by `==`/`!=` and by `contains`
-    /// when the haystack is an array.
-    ///
-    /// Iterative over an explicit work list: `std.json` accepts data far
-    /// deeper than any call stack survives, and a depth-capped recursion
-    /// either answered wrong or needed a diagnostic — the contract says a
-    /// value always equals itself, at any depth (issue #47).
-    fn valueEq(self: *Interp, a: std.json.Value, b: std.json.Value) Error!bool {
-        const Pair = struct { lhs: std.json.Value, rhs: std.json.Value };
-        var work: std.ArrayList(Pair) = .empty;
-        defer work.deinit(self.alloc);
-        try work.append(self.alloc, .{ .lhs = a, .rhs = b });
-        while (work.pop()) |pair| {
-            // A container pair is "equal so far" once its children are
-            // queued; each queued pair decides equality at its own level.
-            const equal_here = switch (pair.lhs) {
-                .null => pair.rhs == .null,
-                .bool => |x| switch (pair.rhs) {
-                    .bool => |y| x == y,
-                    else => false,
-                },
-                .integer => |x| switch (pair.rhs) {
-                    .integer => |y| x == y,
-                    .float => |y| @as(f64, @floatFromInt(x)) == y,
-                    else => false,
-                },
-                .float => |x| switch (pair.rhs) {
-                    .float => |y| x == y,
-                    .integer => |y| x == @as(f64, @floatFromInt(y)),
-                    else => false,
-                },
-                .number_string => |x| switch (pair.rhs) {
-                    .number_string, .string => |y| std.mem.eql(u8, x, y),
-                    else => false,
-                },
-                .string => |x| switch (pair.rhs) {
-                    .string, .number_string => |y| std.mem.eql(u8, x, y),
-                    else => false,
-                },
-                .array => |x| switch (pair.rhs) {
-                    .array => |y| blk: {
-                        if (x.items.len != y.items.len) break :blk false;
-                        for (x.items, y.items) |xi, yi| {
-                            try work.append(self.alloc, .{ .lhs = xi, .rhs = yi });
-                        }
-                        break :blk true;
-                    },
-                    else => false,
-                },
-                .object => |x| switch (pair.rhs) {
-                    // Key order is not significant: look each key up in the
-                    // other map rather than walking both in step.
-                    .object => |y| blk: {
-                        if (x.count() != y.count()) break :blk false;
-                        var it = x.iterator();
-                        while (it.next()) |entry| {
-                            const other = y.get(entry.key_ptr.*) orelse break :blk false;
-                            try work.append(self.alloc, .{ .lhs = entry.value_ptr.*, .rhs = other });
-                        }
-                        break :blk true;
-                    },
-                    else => false,
-                },
-            };
-            if (!equal_here) return false;
-        }
-        return true;
+    /// Compact JSON.stringify: JS number printing, JS string escaping.
+    /// Bounded at max_value_depth like the oracle's serializer.
+    pub fn jsStringify(self: *Interp, v: *const std.json.Value, out: *std.Io.Writer.Allocating) Error!void {
+        try self.jsStringifyDepth(v, out, 0);
     }
 
-    fn containsCheck(self: *Interp, haystack: std.json.Value, needle: std.json.Value) Error!bool {
-        switch (haystack) {
-            .string => |h| switch (needle) {
+    fn jsStringifyDepth(self: *Interp, v: *const std.json.Value, out: *std.Io.Writer.Allocating, depth: u32) Error!void {
+        if (depth > max_value_depth) {
+            return self.failRender(0, "value nested deeper than the {d}-level limit", .{max_value_depth});
+        }
+        const w = &out.writer;
+        switch (v.*) {
+            .null => w.writeAll("null") catch return error.OutOfMemory,
+            .bool => |b| w.writeAll(if (b) "true" else "false") catch return error.OutOfMemory,
+            .integer => |i| w.print("{d}", .{i}) catch return error.OutOfMemory,
+            .float => |f| w.writeAll(try jsFloat(self.alloc, f)) catch return error.OutOfMemory,
+            .number_string => |s| {
+                const f = std.fmt.parseFloat(f64, s) catch 0;
+                w.writeAll(try jsFloat(self.alloc, f)) catch return error.OutOfMemory;
+            },
+            .string => |s| try jsWriteString(w, s),
+            .array => |arr| {
+                w.writeByte('[') catch return error.OutOfMemory;
+                for (arr.items, 0..) |*item, i| {
+                    if (i > 0) w.writeByte(',') catch return error.OutOfMemory;
+                    try self.jsStringifyDepth(item, out, depth + 1);
+                }
+                w.writeByte(']') catch return error.OutOfMemory;
+            },
+            .object => |obj| {
+                w.writeByte('{') catch return error.OutOfMemory;
+                var it = obj.iterator();
+                var i: usize = 0;
+                while (it.next()) |entry| : (i += 1) {
+                    if (i > 0) w.writeByte(',') catch return error.OutOfMemory;
+                    try jsWriteString(w, entry.key_ptr.*);
+                    w.writeByte(':') catch return error.OutOfMemory;
+                    try self.jsStringifyDepth(entry.value_ptr, out, depth + 1);
+                }
+                w.writeByte('}') catch return error.OutOfMemory;
+            },
+        }
+    }
+
+    /// JS `===` except numbers compare by value. Containers compare by
+    /// identity — the Value node address — so `a == b` is true only when
+    /// both sides name the same object, matching the oracle.
+    fn valueEq(self: *Interp, a: *const std.json.Value, b: *const std.json.Value) Error!bool {
+        _ = self;
+        return switch (a.*) {
+            .array, .object => a == b,
+            .null => b.* == .null,
+            .bool => |x| switch (b.*) {
+                .bool => |y| x == y,
+                else => false,
+            },
+            .integer => |x| switch (b.*) {
+                .integer => |y| x == y,
+                .float => |y| @as(f64, @floatFromInt(x)) == y,
+                else => false,
+            },
+            .float => |x| switch (b.*) {
+                .float => |y| x == y,
+                .integer => |y| x == @as(f64, @floatFromInt(y)),
+                else => false,
+            },
+            .number_string => |x| switch (b.*) {
+                .number_string, .string => |y| std.mem.eql(u8, x, y),
+                else => false,
+            },
+            .string => |x| switch (b.*) {
+                .string, .number_string => |y| std.mem.eql(u8, x, y),
+                else => false,
+            },
+        };
+    }
+
+    fn containsCheck(self: *Interp, haystack: *const std.json.Value, needle: *const std.json.Value) Error!bool {
+        switch (haystack.*) {
+            .string => |h| switch (needle.*) {
                 .string => |n| return std.mem.indexOf(u8, h, n) != null,
                 .number_string => |n| return std.mem.indexOf(u8, h, n) != null,
                 else => return false,
             },
             .array => |arr| {
-                for (arr.items) |item| {
-                    if (try self.valueEq(item, needle)) return true;
+                for (arr.items) |*item| {
+                    switch (item.*) {
+                        // SameValueZero: primitives by value, containers
+                        // by identity (Value node address).
+                        .array, .object => {
+                            if (item == needle) return true;
+                        },
+                        else => {
+                            if (try self.valueEq(item, needle)) return true;
+                        },
+                    }
                 }
                 return false;
             },
@@ -471,35 +695,98 @@ fn truthy(v: std.json.Value) bool {
     };
 }
 
-/// Guard on `std.json.Stringify`: its nesting stack is fixed at this many
-/// container levels (`.checked_to_fixed_depth`) and panics past it, in safety
-/// builds, or writes out of bounds in unchecked ones.
-const max_serialize_depth: u32 = 256;
+/// JS Number.prototype.toString for a finite or infinite f64: shortest
+/// round-trip digits, decimal notation for exponents in [-6, 20], else
+/// `d[.ddd]e±E`.
+pub fn jsFloat(alloc: std.mem.Allocator, f: f64) error{OutOfMemory}![]const u8 {
+    if (std.math.isNan(f)) return "NaN";
+    if (std.math.isInf(f)) return if (f > 0) "Infinity" else "-Infinity";
+    if (f == 0) return "0"; // covers -0
 
-/// `enclosing` counts the containers already open around `v`; the walk bails
-/// out at the limit so recursion never exceeds the guard depth itself.
-fn serializeDepthExceeded(v: std.json.Value, enclosing: u32) bool {
-    return switch (v) {
-        .array => |a| blk: {
-            if (enclosing >= max_serialize_depth) break :blk true;
-            for (a.items) |item| {
-                if (serializeDepthExceeded(item, enclosing + 1)) break :blk true;
+    // Shortest round-trip: Zig's float formatting is Ryu-style shortest,
+    // so format the digits in scientific form and re-emit per JS rules.
+    var sci: [64]u8 = undefined;
+    const text = std.fmt.bufPrint(&sci, "{e}", .{f}) catch return error.OutOfMemory;
+    // text looks like `-d.ddde±XX` or `de±X`.
+    const epos = std.mem.indexOfAny(u8, text, "eE") orelse return alloc.dupe(u8, text);
+    const mantissa = text[0..epos];
+    const exp = std.fmt.parseInt(i32, text[epos + 1 ..], 10) catch return error.OutOfMemory;
+
+    var digits: [32]u8 = undefined;
+    var nd: usize = 0;
+    for (mantissa) |c| {
+        if (c >= '0' and c <= '9') {
+            digits[nd] = c;
+            nd += 1;
+        }
+    }
+    const digit_count = nd;
+
+    var buf = std.ArrayList(u8).empty;
+    errdefer buf.deinit(alloc);
+    if (exp >= -6 and exp <= 20) {
+        if (f < 0) try buf.append(alloc, '-');
+        if (exp >= 0) {
+            const e: usize = @intCast(exp);
+            if (digit_count > e + 1) {
+                try buf.appendSlice(alloc, digits[0 .. e + 1]);
+                try buf.append(alloc, '.');
+                try buf.appendSlice(alloc, digits[e + 1 .. digit_count]);
+            } else {
+                try buf.appendSlice(alloc, digits[0..digit_count]);
+                var i: usize = digit_count;
+                while (i < e + 1) : (i += 1) try buf.append(alloc, '0');
             }
-            break :blk false;
-        },
-        .object => |o| blk: {
-            if (enclosing >= max_serialize_depth) break :blk true;
-            for (o.values()) |child| {
-                if (serializeDepthExceeded(child, enclosing + 1)) break :blk true;
-            }
-            break :blk false;
-        },
-        else => false,
-    };
+        } else {
+            try buf.appendSlice(alloc, "0.");
+            var i: i32 = -exp - 1;
+            while (i > 0) : (i -= 1) try buf.append(alloc, '0');
+            try buf.appendSlice(alloc, digits[0..digit_count]);
+        }
+    } else {
+        if (f < 0) try buf.append(alloc, '-');
+        try buf.append(alloc, digits[0]);
+        if (digit_count > 1) {
+            try buf.append(alloc, '.');
+            try buf.appendSlice(alloc, digits[1..digit_count]);
+        }
+        try buf.append(alloc, 'e');
+        if (exp >= 0) try buf.append(alloc, '+');
+        const etext = try std.fmt.allocPrint(alloc, "{d}", .{exp});
+        try buf.appendSlice(alloc, etext);
+    }
+    return buf.toOwnedSlice(alloc);
+}
+
+/// JSON string escaping per JSON.stringify: `"` and `\` escaped, control
+/// characters use the short escapes or `\u00XX`.
+fn jsWriteString(w: *std.Io.Writer, s: []const u8) error{OutOfMemory}!void {
+    w.writeByte('"') catch return error.OutOfMemory;
+    var i: usize = 0;
+    while (i < s.len) : (i += 1) {
+        const c = s[i];
+        switch (c) {
+            '"' => w.writeAll("\\\"") catch return error.OutOfMemory,
+            '\\' => w.writeAll("\\\\") catch return error.OutOfMemory,
+            '\n' => w.writeAll("\\n") catch return error.OutOfMemory,
+            '\r' => w.writeAll("\\r") catch return error.OutOfMemory,
+            '\t' => w.writeAll("\\t") catch return error.OutOfMemory,
+            0x08 => w.writeAll("\\b") catch return error.OutOfMemory,
+            0x0C => w.writeAll("\\f") catch return error.OutOfMemory,
+            else => {
+                if (c < 0x20) {
+                    w.print("\\u{x:0>4}", .{c}) catch return error.OutOfMemory;
+                } else {
+                    w.writeByte(c) catch return error.OutOfMemory;
+                }
+            },
+        }
+    }
+    w.writeByte('"') catch return error.OutOfMemory;
 }
 
 /// Ordered comparisons work on two numbers or two strings; any other
-/// combination is false (documented subset).
+/// combination is false.
 fn orderedCompare(op: parse.CmpOp, a: std.json.Value, b: std.json.Value) bool {
     const ord = compareOrdered(a, b) orelse return false;
     return switch (op) {
@@ -512,23 +799,23 @@ fn orderedCompare(op: parse.CmpOp, a: std.json.Value, b: std.json.Value) bool {
 }
 
 fn compareOrdered(a: std.json.Value, b: std.json.Value) ?std.math.Order {
-    switch (a) {
-        .integer => |x| switch (b) {
-            .integer => |y| return std.math.order(x, y),
-            .float => |y| return std.math.order(@as(f64, @floatFromInt(x)), y),
-            else => return null,
-        },
-        .float => |x| switch (b) {
-            .float => |y| return std.math.order(x, y),
-            .integer => |y| return std.math.order(x, @as(f64, @floatFromInt(y))),
-            else => return null,
-        },
-        .string => |x| switch (b) {
-            .string => |y| return std.mem.order(u8, x, y),
-            else => return null,
-        },
-        else => return null,
-    }
+    const an = numberOf(a) orelse {
+        if (a == .string and b == .string) {
+            return std.mem.order(u8, a.string, b.string);
+        }
+        return null;
+    };
+    const bn = numberOf(b) orelse return null;
+    return std.math.order(an, bn);
+}
+
+fn numberOf(v: std.json.Value) ?f64 {
+    return switch (v) {
+        .integer => |i| @floatFromInt(i),
+        .float => |f| f,
+        .number_string => |s| std.fmt.parseFloat(f64, s) catch null,
+        else => null,
+    };
 }
 
 fn valueTypeName(v: std.json.Value) []const u8 {
