@@ -853,7 +853,7 @@ pub const Interp = struct {
 
 fn literalValue(lit: parse.Literal) std.json.Value {
     return switch (lit) {
-        .string => |s| .{ .string = s },
+        .string => |s| .{ .string = s.value },
         .integer => |n| .{ .integer = n },
         .float => |f| .{ .float = f },
         .boolean => |b| .{ .bool = b },

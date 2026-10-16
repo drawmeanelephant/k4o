@@ -62,7 +62,9 @@ fn literalPair(it: *Interp, call: parse.FilterCall, e: *const parse.Expr) Error!
     _ = call;
     return switch (term.value) {
         .literal => |l| switch (l) {
-            .string => |s| s,
+            // Spec/repl keep the raw source — `"/\d+/g"` must still see
+            // the `\d` that the string value would have eaten.
+            .string => |s| s.raw,
             else => null,
         },
         else => null,

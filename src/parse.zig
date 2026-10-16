@@ -11,11 +11,19 @@ const diag = @import("diag.zig");
 pub const Error = error{ Template, OutOfMemory };
 
 pub const Literal = union(enum) {
-    string: []const u8,
+    string: StringLit,
     integer: i64,
     float: f64,
     boolean: bool,
     null,
+};
+
+/// A quoted string literal: `value` has escapes applied (`\n` →
+/// newline, `\d` → `d`), `raw` is the pre-unescape source — `replace`
+/// regex specs need it (`"/\d+/g"` must still see `\d`).
+pub const StringLit = struct {
+    value: []const u8,
+    raw: []const u8,
 };
 
 pub const Step = union(enum) {
@@ -726,7 +734,7 @@ const Scanner = struct {
         return s.text[start..s.pos];
     }
 
-    fn parseStringLit(s: *Scanner) Error![]const u8 {
+    fn parseStringLit(s: *Scanner) Error!StringLit {
         const quote = s.text[s.pos];
         s.pos += 1;
         var needs_copy = false;
@@ -744,7 +752,7 @@ const Scanner = struct {
         if (scan >= s.text.len) return s.err("unterminated string literal", .{});
         const raw = s.text[s.pos..scan];
         s.pos = scan + 1;
-        if (!needs_copy) return raw;
+        if (!needs_copy) return .{ .value = raw, .raw = raw };
         var buf = std.ArrayList(u8).empty;
         errdefer buf.deinit(s.p.alloc);
         var i: usize = 0;
@@ -764,7 +772,7 @@ const Scanner = struct {
                 i += 1;
             }
         }
-        return buf.toOwnedSlice(s.p.alloc);
+        return .{ .value = try buf.toOwnedSlice(s.p.alloc), .raw = raw };
     }
 
     fn parseNumberLit(s: *Scanner) error{Template}!Literal {
@@ -949,7 +957,7 @@ const Scanner = struct {
                 const start = s.pos;
                 while (s.pos < s.text.len and isBareChar(s.text[s.pos])) s.pos += 1;
                 if (s.pos == start) return s.err("expected a filter argument", .{});
-                primary = .{ .literal = .{ .string = s.text[start..s.pos] } };
+                primary = .{ .literal = .{ .string = .{ .value = s.text[start..s.pos], .raw = s.text[start..s.pos] } } };
             }
         } else if (c == '(') {
             // Nested parenthesized expression — treat like a literal arg group.
@@ -991,7 +999,7 @@ const Scanner = struct {
                 var q = Scanner{ .p = s.p, .text = tok, .base = s.abs() - tok.len };
                 primary = .{ .path = try q.parsePath(false) };
             } else {
-                primary = .{ .literal = .{ .string = tok } };
+                primary = .{ .literal = .{ .string = .{ .value = tok, .raw = tok } } };
             }
         }
         const pipe = Pipeline{ .value = primary, .filters = &.{}, .offset = s.abs() };
@@ -1026,7 +1034,7 @@ const Scanner = struct {
                 }
                 s.skipWs();
                 const name = if (s.peek() == '"' or s.peek() == '\'')
-                    try s.parseStringLit()
+                    (try s.parseStringLit()).value
                 else
                     (s.word() orelse return s.err("expected a field name in the arrow object", .{}));
                 s.skipWs();
@@ -1055,8 +1063,8 @@ const Scanner = struct {
         }
         if (c == '"' or c == '\'') {
             const raw = try s.parseStringLit();
-            const parts = try s.splitInterp(raw);
-            if (parts.len == 1 and parts[0] == .text) return .{ .literal = .{ .string = raw } };
+            const parts = try s.splitInterp(raw.value);
+            if (parts.len == 1 and parts[0] == .text) return .{ .literal = .{ .string = .{ .value = raw.value, .raw = raw.raw } } };
             return .{ .interp = parts };
         }
         if (std.ascii.isDigit(c) or
@@ -1075,8 +1083,8 @@ const Scanner = struct {
         const c = s.peek() orelse return s.err("expected a value in the arrow object", .{});
         if (c == '"' or c == '\'') {
             const raw = try s.parseStringLit();
-            const parts = try s.splitInterp(raw);
-            if (parts.len == 1 and parts[0] == .text) return .{ .literal = .{ .string = raw } };
+            const parts = try s.splitInterp(raw.value);
+            if (parts.len == 1 and parts[0] == .text) return .{ .literal = .{ .string = .{ .value = raw.value, .raw = raw.raw } } };
             return .{ .interp = parts };
         }
         if (std.ascii.isDigit(c) or
@@ -1124,7 +1132,7 @@ const Scanner = struct {
         const c = s.peek() orelse return s.err("expected a value", .{});
         if (c == '"' or c == '\'') {
             const str = try s.parseStringLit();
-            return .{ .literal = .{ .string = str } };
+            return .{ .literal = .{ .string = .{ .value = str.value, .raw = str.raw } } };
         }
         if (std.ascii.isDigit(c) or
             (c == '-' and s.pos + 1 < s.text.len and std.ascii.isDigit(s.text[s.pos + 1])))
@@ -1157,7 +1165,7 @@ const Scanner = struct {
                     s.skipWs();
                     if (s.peek() != ']') return s.err("expected ']' after bracket key", .{});
                     s.pos += 1;
-                    try steps.append(s.p.alloc, .{ .key = key });
+                    try steps.append(s.p.alloc, .{ .key = key.value });
                 } else if (std.ascii.isDigit(k)) {
                     const dstart = s.pos;
                     while (s.pos < s.text.len and std.ascii.isDigit(s.text[s.pos])) s.pos += 1;

@@ -326,7 +326,7 @@ fn pieceExpr(it: *Interp, offset: usize, piece: []const u8) Error!*const parse.E
     } else if (try piecePath(it, piece)) |p| {
         primary = .{ .path = p };
     } else {
-        primary = .{ .literal = .{ .string = piece } };
+        primary = .{ .literal = .{ .string = .{ .value = piece, .raw = piece } } };
     }
     const terms = try it.alloc.alloc(parse.Pipeline, 1);
     terms[0] = .{ .value = primary, .filters = &.{}, .offset = offset };
@@ -580,7 +580,7 @@ fn emitTable(
                 const pv = try it.evalParam(e);
                 const t = (try filters.scalarText(it.alloc, pv.*)) orelse
                     return filters.badArg(it, call, "filter '{s}' column names must be text", .{call.name});
-                try param_headers.append(it.alloc, try cellEscape(it, t));
+                try param_headers.append(it.alloc, t);
             },
             else => {},
         }
@@ -609,60 +609,63 @@ fn emitTable(
             width = 2;
         },
         .array => |arr| {
-            var all_obj = arr.items.len > 0;
-            var all_arr = arr.items.len > 0;
-            for (arr.items) |item| {
-                if (item != .object) all_obj = false;
-                if (item != .array) all_arr = false;
-            }
-            if (all_obj) {
-                // Headers come from the first object's keys only; keys
-                // are stored raw for lookup and escaped for display.
-                const first = arr.items[0].object;
-                var raw_headers = std.ArrayList([]const u8).empty;
-                var it2 = first.iterator();
-                while (it2.next()) |entry| {
-                    try raw_headers.append(it.alloc, entry.key_ptr.*);
-                    try headers.append(it.alloc, try cellEscape(it, entry.key_ptr.*));
+            if (arr.items.len > 0 and arr.items[0] == .object) {
+                // Object-first: headers are the first object's keys, or
+                // the parameter names as a column selection; non-object
+                // elements render as empty rows.
+                var cols = std.ArrayList([]const u8).empty;
+                if (param_headers.items.len > 0) {
+                    try cols.appendSlice(it.alloc, param_headers.items);
+                } else {
+                    var it2 = arr.items[0].object.iterator();
+                    while (it2.next()) |entry| try cols.append(it.alloc, entry.key_ptr.*);
                 }
-                width = headers.items.len;
+                for (cols.items) |h| try headers.append(it.alloc, try cellEscape(it, h));
+                width = cols.items.len;
                 for (arr.items) |*item| {
                     const row = try it.alloc.alloc([]const u8, width);
-                    for (raw_headers.items, 0..) |h, i| {
+                    if (item.* == .object) {
                         const obj = item.object;
-                        row[i] = if (obj.get(h)) |val| try cellText(it, &val) else "";
+                        for (cols.items, 0..) |h, i| {
+                            row[i] = if (obj.get(h)) |val| try objCellText(it, &val) else "";
+                        }
+                    } else {
+                        for (0..width) |i| row[i] = "";
                     }
                     try rows.append(it.alloc, row);
                 }
-            } else if (all_arr) {
-                for (arr.items) |item| {
-                    width = @max(width, item.array.items.len);
+            } else if (arr.items.len > 0 and arr.items[0] == .array) {
+                // Row mode: array elements provide the row's cells;
+                // string elements split into per-character cells. Any
+                // other element fails to parse — the input passes
+                // through untouched (the oracle also warns).
+                var pending = std.ArrayList([]const []const u8).empty;
+                for (arr.items) |*item| {
+                    const cells = (try rowCells(it, item)) orelse return v;
+                    try pending.append(it.alloc, cells);
+                    width = @max(width, cells.len);
                 }
-                if (param_headers.items.len > 0) {
-                    headers = param_headers;
-                } else {
-                    for (0..width) |_| try headers.append(it.alloc, "");
-                }
-                for (arr.items) |item| {
+                for (param_headers.items) |h| try headers.append(it.alloc, try cellEscape(it, h));
+                for (pending.items) |cells| {
                     const row = try it.alloc.alloc([]const u8, width);
-                    for (0..width) |i| {
-                        row[i] = if (i < item.array.items.len)
-                            try cellText(it, &item.array.items[i])
-                        else
-                            "";
-                    }
+                    for (0..width) |i| row[i] = if (i < cells.len) cells[i] else "";
                     try rows.append(it.alloc, row);
                 }
             } else {
-                width = 1;
+                // Value mode: a "Value" column, or the parameter headers
+                // chunking elements into rows of that many columns.
+                width = @max(param_headers.items.len, 1);
                 if (param_headers.items.len > 0) {
-                    headers = param_headers;
+                    for (param_headers.items) |h| try headers.append(it.alloc, try cellEscape(it, h));
                 } else {
                     try headers.append(it.alloc, "Value");
                 }
-                for (arr.items) |*item| {
-                    const row = try it.alloc.alloc([]const u8, 1);
-                    row[0] = try cellText(it, item);
+                var i: usize = 0;
+                while (i < arr.items.len) : (i += width) {
+                    const row = try it.alloc.alloc([]const u8, width);
+                    for (0..width) |j| {
+                        row[j] = if (i + j < arr.items.len) try cellText(it, &arr.items[i + j]) else "";
+                    }
                     try rows.append(it.alloc, row);
                 }
             }
@@ -730,6 +733,40 @@ fn writeRow(
 /// comma-joins for arrays, `null` for null.
 fn cellText(it: *Interp, v: *const Value) Error![]const u8 {
     return cellEscape(it, try jsStr(it, v));
+}
+
+/// Array-of-objects cell: null shows as empty there (the `[^e]` row's
+/// `null` in an object *input* still prints "null" — different rule).
+fn objCellText(it: *Interp, v: *const Value) Error![]const u8 {
+    if (v.* == .null) return "";
+    return cellText(it, v);
+}
+
+/// Row-mode element: an array's items become the cells; a string splits
+/// into per-character cells (the oracle's JS `.split('')`). Any other
+/// element kind fails the whole table — the caller passes the input
+/// through untouched.
+fn rowCells(it: *Interp, item: *const Value) Error!?[]const []const u8 {
+    switch (item.*) {
+        .array => |arr| {
+            const cells = try it.alloc.alloc([]const u8, arr.items.len);
+            for (arr.items, 0..) |*c, i| cells[i] = try cellText(it, c);
+            return cells;
+        },
+        .string, .number_string => {
+            const s = (try filters.scalarText(it.alloc, item.*)).?;
+            var cells = std.ArrayList([]const u8).empty;
+            var i: usize = 0;
+            while (i < s.len) {
+                const len = std.unicode.utf8ByteSequenceLength(s[i]) catch 1;
+                const end = @min(i + len, s.len);
+                try cells.append(it.alloc, try cellEscape(it, s[i..end]));
+                i = end;
+            }
+            return cells.items;
+        },
+        else => return null,
+    }
 }
 
 fn cellEscape(it: *Interp, raw: []const u8) Error![]const u8 {
