@@ -56,13 +56,19 @@ const cases = [_]Case{
     .{ .name = "filter-comment-basic", .template = @embedFile("fixtures/filter-comment-basic.knap"), .data = @embedFile("fixtures/filter-comment-basic.json"), .expected = @embedFile("fixtures/filter-comment-basic.markdown") },
     .{ .name = "filter-comment-multiline", .template = @embedFile("fixtures/filter-comment-multiline.knap"), .data = @embedFile("fixtures/filter-comment-multiline.json"), .expected = @embedFile("fixtures/filter-comment-multiline.markdown") },
     .{ .name = "filter-compact-basic", .template = @embedFile("fixtures/filter-compact-basic.knap"), .data = @embedFile("fixtures/filter-compact-basic.json"), .expected = @embedFile("fixtures/filter-compact-basic.markdown") },
+    .{ .name = "filter-date-basic", .template = @embedFile("fixtures/filter-date-basic.knap"), .data = @embedFile("fixtures/filter-date-basic.json"), .expected = @embedFile("fixtures/filter-date-basic.markdown") },
+    .{ .name = "filter-date_modify-basic", .template = @embedFile("fixtures/filter-date_modify-basic.knap"), .data = @embedFile("fixtures/filter-date_modify-basic.json"), .expected = @embedFile("fixtures/filter-date_modify-basic.markdown") },
     .{ .name = "filter-decode_uri-basic", .template = @embedFile("fixtures/filter-decode_uri-basic.knap"), .data = @embedFile("fixtures/filter-decode_uri-basic.json"), .expected = @embedFile("fixtures/filter-decode_uri-basic.markdown") },
+    .{ .name = "filter-duration-basic", .template = @embedFile("fixtures/filter-duration-basic.knap"), .data = @embedFile("fixtures/filter-duration-basic.json"), .expected = @embedFile("fixtures/filter-duration-basic.markdown") },
+    .{ .name = "filter-embed-alias", .template = @embedFile("fixtures/filter-embed-alias.knap"), .data = @embedFile("fixtures/filter-embed-alias.json"), .expected = @embedFile("fixtures/filter-embed-alias.markdown") },
+    .{ .name = "filter-embed-basic", .template = @embedFile("fixtures/filter-embed-basic.knap"), .data = @embedFile("fixtures/filter-embed-basic.json"), .expected = @embedFile("fixtures/filter-embed-basic.markdown") },
     .{ .name = "filter-encode_uri-basic", .template = @embedFile("fixtures/filter-encode_uri-basic.knap"), .data = @embedFile("fixtures/filter-encode_uri-basic.json"), .expected = @embedFile("fixtures/filter-encode_uri-basic.markdown") },
     .{ .name = "filter-escape_md-basic", .template = @embedFile("fixtures/filter-escape_md-basic.knap"), .data = @embedFile("fixtures/filter-escape_md-basic.json"), .expected = @embedFile("fixtures/filter-escape_md-basic.markdown") },
     .{ .name = "filter-first-basic", .template = @embedFile("fixtures/filter-first-basic.knap"), .data = @embedFile("fixtures/filter-first-basic.json"), .expected = @embedFile("fixtures/filter-first-basic.markdown") },
     .{ .name = "filter-footnote-basic", .template = @embedFile("fixtures/filter-footnote-basic.knap"), .data = @embedFile("fixtures/filter-footnote-basic.json"), .expected = @embedFile("fixtures/filter-footnote-basic.markdown") },
     .{ .name = "filter-footnote-object", .template = @embedFile("fixtures/filter-footnote-object.knap"), .data = @embedFile("fixtures/filter-footnote-object.json"), .expected = @embedFile("fixtures/filter-footnote-object.markdown") },
     .{ .name = "filter-fragment_link-basic", .template = @embedFile("fixtures/filter-fragment_link-basic.knap"), .data = @embedFile("fixtures/filter-fragment_link-basic.json"), .expected = @embedFile("fixtures/filter-fragment_link-basic.markdown") },
+    .{ .name = "filter-fragment_link-scalar", .template = @embedFile("fixtures/filter-fragment_link-scalar.knap"), .data = @embedFile("fixtures/filter-fragment_link-scalar.json"), .expected = @embedFile("fixtures/filter-fragment_link-scalar.markdown") },
     .{ .name = "filter-h1-basic", .template = @embedFile("fixtures/filter-h1-basic.knap"), .data = @embedFile("fixtures/filter-h1-basic.json"), .expected = @embedFile("fixtures/filter-h1-basic.markdown") },
     .{ .name = "filter-h2-basic", .template = @embedFile("fixtures/filter-h2-basic.knap"), .data = @embedFile("fixtures/filter-h2-basic.json"), .expected = @embedFile("fixtures/filter-h2-basic.markdown") },
     .{ .name = "filter-h3-basic", .template = @embedFile("fixtures/filter-h3-basic.knap"), .data = @embedFile("fixtures/filter-h3-basic.json"), .expected = @embedFile("fixtures/filter-h3-basic.markdown") },
@@ -73,6 +79,7 @@ const cases = [_]Case{
     .{ .name = "filter-highlight-args", .template = @embedFile("fixtures/filter-highlight-args.knap"), .data = @embedFile("fixtures/filter-highlight-args.json"), .expected = @embedFile("fixtures/filter-highlight-args.markdown") },
     .{ .name = "filter-highlight-basic", .template = @embedFile("fixtures/filter-highlight-basic.knap"), .data = @embedFile("fixtures/filter-highlight-basic.json"), .expected = @embedFile("fixtures/filter-highlight-basic.markdown") },
     .{ .name = "filter-hr-basic", .template = @embedFile("fixtures/filter-hr-basic.knap"), .data = @embedFile("fixtures/filter-hr-basic.json"), .expected = @embedFile("fixtures/filter-hr-basic.markdown") },
+    .{ .name = "filter-hr-empty", .template = @embedFile("fixtures/filter-hr-empty.knap"), .data = @embedFile("fixtures/filter-hr-empty.json"), .expected = @embedFile("fixtures/filter-hr-empty.markdown") },
     .{ .name = "filter-image-basic", .template = @embedFile("fixtures/filter-image-basic.knap"), .data = @embedFile("fixtures/filter-image-basic.json"), .expected = @embedFile("fixtures/filter-image-basic.markdown") },
     .{ .name = "filter-indent-args", .template = @embedFile("fixtures/filter-indent-args.knap"), .data = @embedFile("fixtures/filter-indent-args.json"), .expected = @embedFile("fixtures/filter-indent-args.markdown") },
     .{ .name = "filter-indent-basic", .template = @embedFile("fixtures/filter-indent-basic.knap"), .data = @embedFile("fixtures/filter-indent-basic.json"), .expected = @embedFile("fixtures/filter-indent-basic.markdown") },
@@ -522,8 +529,8 @@ test "unit: dash whitespace-control syntax is rejected" {
 }
 
 test "unit: blocked host filters error at render" {
-    try renderErr("{{ x | embed }}", "{\"x\":\"n\"}", "not supported");
     try renderErr("{{ x | html_to_json }}", "{\"x\":\"<p>a</p>\"}", "not supported");
+    try renderErr("{{ x | remove_html }}", "{\"x\":\"<p>a</p>\"}", "not supported");
 }
 
 test "unit: nested loops multiply against the output cap" {

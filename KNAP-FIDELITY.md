@@ -118,13 +118,16 @@ Legend:
 - `textile` / `gfm`: **cut** (decided). v0.1.0 tagged as the final release
   containing them; Oliver's opt-ins cover the original need. dogbed must
   move to markdown/oliver output.
-- `embed`: **excluded** (decided) — no vault resolver at this layer, and the
-  bytes render as literal text downstream anyway.
+- `embed`: **implemented** — probing showed it needs no vault resolver:
+  strings emit `![[x]]`/`![[x|alias]]`, arrays vectorize, objects emit
+  `["![[k|v]]"]` as a *serialized-string* result (reparsed by later
+  filters). The earlier "can't" note is corrected.
 
 ## 7. The honest "can't" list
 
 - **blocked** `html_to_json`, `remove_html` — need DOM globals; upstream
-  segregates them. Permanent, documented exclusion.
+  segregates them. Permanent, documented exclusion. (Every other filter
+  in the registry — including `embed` — is implemented.)
 - **blocked** `embed` — excluded (decided): no resolver exists at this
   layer; bytes emittable, semantics not.
 - **risk** `replace` regex — no stdlib regex; bounded engine (decided:

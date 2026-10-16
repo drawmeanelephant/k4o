@@ -177,7 +177,8 @@ fn applyPairs(
     for (pairs) |p| {
         const repl_u16 = try re.utf8ToUtf16(it.alloc, try unescapeArg(it.alloc, p.repl));
         const units = try re.utf8ToUtf16(it.alloc, text);
-        if (regexSpec(p.spec)) |spec| {
+        const spec_text = try unescapeArg(it.alloc, p.spec);
+        if (regexSpec(spec_text)) |spec| {
             var detail: []const u8 = "";
             const rex = re.compile(it.alloc, spec.pattern, spec.flags, &detail) catch |e| switch (e) {
                 error.OutOfMemory => return error.OutOfMemory,
@@ -186,7 +187,7 @@ fn applyPairs(
             };
             text = try applyRegex(it, call, &rex, units, repl_u16);
         } else {
-            const needle = try re.utf8ToUtf16(it.alloc, try unescapeArg(it.alloc, p.spec));
+            const needle = try re.utf8ToUtf16(it.alloc, spec_text);
             text = try applyLiteral(it.alloc, units, needle, repl_u16);
         }
     }

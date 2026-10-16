@@ -32,37 +32,90 @@ pub fn apply(
 ) Error!?*const Value {
     const name = call.name;
     if (std.mem.eql(u8, name, "callout")) {
+        try rejectKvParams(it, call);
         return emitCallout(it, call, input);
     }
     if (std.mem.eql(u8, name, "wikilink")) {
+        try rejectKvParams(it, call);
         return emitWikilink(it, call, input);
     }
     if (std.mem.eql(u8, name, "footnote")) {
+        try rejectKvParams(it, call);
         return emitFootnote(it, call, input);
     }
     if (std.mem.eql(u8, name, "strike")) {
+        try rejectKvParams(it, call);
         return wrapLeaves(it, input, {}, strikeLeaf);
     }
     if (std.mem.eql(u8, name, "highlight")) {
         const marker = try highlightMarker(it, call);
+        try rejectKvParams(it, call);
         return wrapLeaves(it, input, marker, highlightLeaf);
     }
     if (std.mem.eql(u8, name, "math")) {
+        try rejectKvParams(it, call);
         return wrapLeaves(it, input, {}, mathLeaf);
     }
     if (std.mem.eql(u8, name, "math_block")) {
+        try rejectKvParams(it, call);
         return wrapLeaves(it, input, {}, mathBlockLeaf);
     }
     if (std.mem.eql(u8, name, "comment")) {
+        try rejectKvParams(it, call);
         return wrapLeaves(it, input, {}, commentLeaf);
     }
     if (std.mem.eql(u8, name, "table")) {
+        try rejectKvParams(it, call);
         return emitTable(it, call, input, false);
     }
     if (std.mem.eql(u8, name, "table_pretty")) {
+        try rejectKvParams(it, call);
         return emitTable(it, call, input, true);
     }
     return null;
+}
+
+/// The oracle's argument grammar has no key:value or arrow form — a
+/// `.pair`/`.arrow` param, or a `=` sitting unquoted in the raw argument
+/// text, is a parse error there (`strike:k=v`, `comment:(x => x)`);
+/// quoting `"a=b"` keeps `=` inside a string. Erroring keeps stdout empty.
+fn rejectKvParams(it: *Interp, call: parse.FilterCall) Error!void {
+    for (call.params) |prm| {
+        if (prm != .value) {
+            return filters.badArg(it, call, "filter '{s}' does not take a key:value or arrow argument here", .{call.name});
+        }
+    }
+    if (!rawArgHasBareEq(it, call)) return;
+    return filters.badArg(it, call, "filter '{s}' does not take a key:value or arrow argument here", .{call.name});
+}
+
+/// Scan the raw `:`-argument text for an `=` outside quotes — inside
+/// parens the region ends at `)`, otherwise at the first terminator.
+fn rawArgHasBareEq(it: *Interp, call: parse.FilterCall) bool {
+    const t = it.template;
+    var i = call.offset + call.name.len;
+    if (i >= t.len or t[i] != ':') return false;
+    i += 1;
+    while (i < t.len and (t[i] == ' ' or t[i] == '\t')) i += 1;
+    const paren = i < t.len and t[i] == '(';
+    if (paren) i += 1;
+    while (i < t.len) {
+        const c = t[i];
+        if (c == '"' or c == '\'') {
+            i += 1;
+            while (i < t.len and t[i] != c) : (i += 1) {
+                if (t[i] == '\\') i += 1;
+            }
+            i += @intFromBool(i < t.len);
+            continue;
+        }
+        if (c == '=') return true;
+        if (paren) {
+            if (c == ')') return false;
+        } else if (c == '|' or c == '}' or c == '{' or c == '%' or c == '(' or isWs(c)) return false;
+        i += 1;
+    }
+    return false;
 }
 
 // --------------------------------------------------------------------
@@ -413,16 +466,33 @@ fn emitWikilink(it: *Interp, call: parse.FilterCall, input: *const Value) Error!
             try it.jsStringify(arr, &buf);
             return it.make(.{ .string = buf.written() });
         },
-        else => return v,
+        else => return v, // non-string scalars pass through untouched
     }
 }
 
-/// One array slot: scalars get `[[v]]`/`[[v|alias]]`, null and empty
-/// strings collapse to `""`, containers spread into keyed entries.
+/// JavaScript truthiness for scalars (null, false, 0, "", NaN are falsy;
+/// containers are always truthy).
+fn jsFalsy(v: *const Value) bool {
+    return switch (v.*) {
+        .null => true,
+        .bool => |b| !b,
+        .integer => |n| n == 0,
+        .float => |f| f == 0 or std.math.isNan(f),
+        .string, .number_string => |s| s.len == 0,
+        else => false,
+    };
+}
+
+/// One array slot: scalars get `[[v]]`/`[[v|alias]]`, falsy scalars
+/// (null, false, 0, "") collapse to `""`, containers spread into keyed
+/// entries.
 fn wikilinkElem(it: *Interp, item: *const Value, alias: []const u8, list: *std.ArrayList(Value)) Error!void {
+    if (jsFalsy(item)) {
+        try list.append(it.alloc, .{ .string = "" });
+        return;
+    }
     switch (item.*) {
         .array, .object => try wikilinkSpread(it, item, list),
-        .null => try list.append(it.alloc, .{ .string = "" }),
         else => {
             const t = (try filters.scalarText(it.alloc, item.*)).?;
             try list.append(it.alloc, .{ .string = try wikiScalar(it, t, alias) });
@@ -553,6 +623,43 @@ fn kebabKey(it: *Interp, key: []const u8) Error![]const u8 {
             try out.append(it.alloc, c);
             prev_lower = std.ascii.isLower(c);
         }
+    }
+    // JS `toLowerCase` is Unicode-aware — the boundary splitting above
+    // only handles ASCII, so the remaining capitals (Ω → ω, À → à, ...)
+    // lower here.
+    return unicodeLower(it, try out.toOwnedSlice(it.alloc));
+}
+
+/// Lowercase the common Unicode capital ranges (Latin-1, Greek,
+/// Cyrillic); anything else keeps its bytes. Invalid UTF-8 passes
+/// through byte-for-byte.
+fn unicodeLower(it: *Interp, s: []const u8) Error![]const u8 {
+    var out = std.ArrayList(u8).empty;
+    var i: usize = 0;
+    while (i < s.len) {
+        const len = std.unicode.utf8ByteSequenceLength(s[i]) catch 1;
+        const end = @min(i + len, s.len);
+        const cp = std.unicode.utf8Decode(s[i..end]) catch {
+            try out.appendSlice(it.alloc, s[i..end]);
+            i = end;
+            continue;
+        };
+        const low: u21 = switch (cp) {
+            0x41...0x5A => cp + 0x20, // ASCII
+            0xC0...0xD6, 0xD8...0xDE => cp + 0x20, // Latin-1 À-Þ
+            0x391...0x3A1, 0x3A3...0x3AB => cp + 0x20, // Greek Α-Ω
+            0x400...0x40F => cp + 0x50, // Cyrillic Ѐ-Џ
+            0x410...0x42F => cp + 0x20, // Cyrillic А-Я
+            else => cp,
+        };
+        if (low == cp) {
+            try out.appendSlice(it.alloc, s[i..end]);
+        } else {
+            var buf: [4]u8 = undefined;
+            const n = std.unicode.utf8Encode(low, &buf) catch unreachable;
+            try out.appendSlice(it.alloc, buf[0..n]);
+        }
+        i = end;
     }
     return out.toOwnedSlice(it.alloc);
 }

@@ -576,6 +576,7 @@ fn stripMdText(_: void, it: *Interp, s: []const u8) Error![]const u8 {
     cur = try mdHeadings(it, cur);
     cur = try mdHr(it, cur);
     cur = try mdImages(it, cur);
+    cur = try mdPipes(it, cur);
     cur = try mdWikiLink(it, cur, true);
     cur = try mdWikiLink(it, cur, false);
     cur = try mdLinks(it, cur);
@@ -583,15 +584,9 @@ fn stripMdText(_: void, it: *Interp, s: []const u8) Error![]const u8 {
     cur = try mdEmptyBrackets(it, cur);
     cur = try mdFootnotes(it, cur);
     cur = try mdHtml(it, cur);
-    cur = try mdCode(it, cur);
-    for ([_]u8{ '*', '_' }) |m| cur = try mdDelim(it, cur, m, .{ .empty_ok = true });
-    cur = try mdDelim(it, cur, '~', .{ .empty_ok = true, .width2 = true });
-    cur = try mdWord(it, cur, '~');
-    cur = try mdWord(it, cur, '^');
-    cur = try mdDelim(it, cur, '=', .{ .empty_ok = true, .width2 = true });
+    cur = try mdInline(it, cur);
     cur = try mdBullets(it, cur);
     cur = try mdBlockquote(it, cur);
-    cur = try mdPipes(it, cur);
     cur = try mdCollapse(it, cur);
     return mdTrim(cur);
 }
@@ -671,11 +666,11 @@ fn mdWikiLink(it: *Interp, s: []const u8, piped: bool) Error![]const u8 {
         if (s[i] == '[' and i + 1 < s.len and s[i + 1] == '[') {
             if (piped) {
                 var j = i + 2;
-                while (j < s.len and s[j] != ']' and s[j] != '|') j += 1;
+                while (j < s.len and s[j] != ']' and s[j] != '|' and s[j] != '\n') j += 1;
                 if (j < s.len and s[j] == '|') {
                     const vs = j + 1;
                     var k = vs;
-                    while (k < s.len and s[k] != ']' and s[k] != '|') k += 1;
+                    while (k < s.len and s[k] != ']' and s[k] != '|' and s[k] != '\n') k += 1;
                     if (k + 1 < s.len and s[k] == ']' and s[k + 1] == ']') {
                         try out.appendSlice(it.alloc, s[vs..k]);
                         i = k + 2;
@@ -684,7 +679,7 @@ fn mdWikiLink(it: *Interp, s: []const u8, piped: bool) Error![]const u8 {
                 }
             } else {
                 var j = i + 2;
-                while (j < s.len and s[j] != ']') j += 1;
+                while (j < s.len and s[j] != ']' and s[j] != '\n') j += 1;
                 if (j + 1 < s.len and s[j] == ']' and s[j + 1] == ']') {
                     try out.appendSlice(it.alloc, s[i + 2 .. j]);
                     i = j + 2;
@@ -807,67 +802,92 @@ fn mdHtml(it: *Interp, s: []const u8) Error![]const u8 {
     return out.toOwnedSlice(it.alloc);
 }
 
-/// `` `code` `` keeps its text; content is `[^`]+` — nonempty and it may
-/// span newlines (which is also why ``` ```x``` ``` degrades to ` ``x`` `).
-fn mdCode(it: *Interp, s: []const u8) Error![]const u8 {
-    return mdDelim(it, s, '`', .{ .nl_ok = true });
+/// One interleaved left-to-right pass for all paired inline markers —
+/// backtick code, `*`/`_`/`~~` emphasis, `~`/`^` word spans, `==`
+/// highlight — followed by marker-only reruns until stable. Emitted span
+/// content is verbatim: it is never rescanned inside the same pass, which
+/// is why `_a` survives inside `*...*` (the `_` was content by the time
+/// the scan reached it) while `*y*` inside `` `...` `` is stripped on the
+/// rerun (the code span emitted `x*y*z`, then a later pass pairs it).
+/// The `mm`/`m` empty close may not be followed by another marker, so
+/// `***x**` keeps a `*` while `***x***` loses all six.
+fn mdInline(it: *Interp, s: []const u8) Error![]const u8 {
+    var cur = try mdInlinePass(it, s, .{ .code = true, .caret = true });
+    while (true) {
+        // Reruns drop only nonempty spans — an empty `**` that was emitted
+        // as _-span content stays put (`==**~` keeps its `**`).
+        const next = try mdInlinePass(it, cur, .{ .nonempty = true });
+        if (next.len == cur.len and std.mem.eql(u8, next, cur)) return cur;
+        cur = next;
+    }
 }
 
-const DelimCfg = struct { empty_ok: bool = false, nl_ok: bool = false, width2: bool = false };
+const InlineCfg = struct { code: bool = false, caret: bool = false, nonempty: bool = false };
 
-fn mdDelim(it: *Interp, s: []const u8, m: u8, comptime cfg: DelimCfg) Error![]const u8 {
+fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]const u8 {
     var out = std.ArrayList(u8).empty;
-    const width: usize = if (cfg.width2) 2 else 1;
     var i: usize = 0;
     while (i < s.len) {
-        if (i + width > s.len or s[i] != m or (width == 2 and s[i + 1] != m)) {
-            try out.append(it.alloc, s[i]);
-            i += 1;
-            continue;
-        }
-        var j = i + width;
-        if (width == 1) {
-            // `m[^m\n]*m` (or `[^m]+` for code): the next marker closes.
-            while (j < s.len and s[j] != m and (cfg.nl_ok or s[j] != '\n')) j += 1;
-            if (j == s.len or s[j] != m or (!cfg.empty_ok and j == i + 1)) {
-                try out.append(it.alloc, s[i]);
-                i += 1;
+        const c = s[i];
+        if (cfg.code and c == '`') {
+            // `[^`]+` — nonempty, may span newlines.
+            var j = i + 1;
+            while (j < s.len and s[j] != '`') j += 1;
+            if (j > i + 1 and j < s.len) {
+                try out.appendSlice(it.alloc, s[i + 1 .. j]);
+                i = j + 1;
                 continue;
             }
-        } else {
-            // lazy `mm(.*?)mm`: first closing pair; `.` never crosses `\n`.
+        } else if (c == '*' or c == '_') {
+            // `m[^m\n]*m`; an empty close can't open a longer run.
+            var j = i + 1;
+            while (j < s.len and s[j] != c and s[j] != '\n') j += 1;
+            const empty = j == i + 1;
+            if (j < s.len and s[j] == c and
+                !(empty and (cfg.nonempty or (j + 1 < s.len and s[j + 1] == c))))
+            {
+                try out.appendSlice(it.alloc, s[i + 1 .. j]);
+                i = j + 1;
+                continue;
+            }
+        } else if (c == '~' and i + 1 < s.len and s[i + 1] == '~') {
+            // `~~[^~\n]*~~`.
+            var j = i + 2;
+            while (j < s.len and s[j] != '~' and s[j] != '\n') j += 1;
+            if (j + 1 < s.len and s[j] == '~' and s[j + 1] == '~' and
+                !(j == i + 2 and (cfg.nonempty or (j + 2 < s.len and s[j + 2] == '~'))))
+            {
+                try out.appendSlice(it.alloc, s[i + 2 .. j]);
+                i = j + 2;
+                continue;
+            }
+        } else if (c == '~' or (cfg.caret and c == '^')) {
+            // `m\w+m` — word-char content only, so `^a b^` survives; `^`
+            // only runs in the first pass (`^^x^^` settles as `^x^`).
+            var j = i + 1;
+            while (j < s.len and isNameStart(s[j])) j += 1;
+            if (j > i + 1 and j < s.len and s[j] == c) {
+                try out.appendSlice(it.alloc, s[i + 1 .. j]);
+                i = j + 1;
+                continue;
+            }
+        } else if (c == '=' and i + 1 < s.len and s[i + 1] == '=') {
+            // lazy `==(.*?)==`; `.` never crosses a newline.
+            var j = i + 2;
             var found = false;
             while (j + 1 < s.len) : (j += 1) {
                 if (s[j] == '\n') break;
-                if (s[j] == m and s[j + 1] == m) {
+                if (s[j] == '=' and s[j + 1] == '=' and
+                    !(j == i + 2 and
+                        (cfg.nonempty or (j + 2 < s.len and s[j + 2] == '='))))
+                {
                     found = true;
                     break;
                 }
             }
-            if (!found) {
-                try out.append(it.alloc, s[i]);
-                i += 1;
-                continue;
-            }
-        }
-        try out.appendSlice(it.alloc, s[i + width .. j]);
-        i = j + width;
-    }
-    return out.toOwnedSlice(it.alloc);
-}
-
-/// `^sup^` / `~a~` — `m(\w+)m`: word-chars only, nonempty — `^^x^^` ->
-/// `^x^` (the inner pair never forms), `^a b^` and `~a;b~` survive.
-fn mdWord(it: *Interp, s: []const u8, m: u8) Error![]const u8 {
-    var out = std.ArrayList(u8).empty;
-    var i: usize = 0;
-    while (i < s.len) {
-        if (s[i] == m) {
-            var j = i + 1;
-            while (j < s.len and isNameStart(s[j])) j += 1;
-            if (j > i + 1 and j < s.len and s[j] == m) {
-                try out.appendSlice(it.alloc, s[i + 1 .. j]);
-                i = j + 1;
+            if (found) {
+                try out.appendSlice(it.alloc, s[i + 2 .. j]);
+                i = j + 2;
                 continue;
             }
         }

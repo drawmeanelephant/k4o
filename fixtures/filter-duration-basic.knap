@@ -1,0 +1,3 @@
+{{ a | duration }}
+{{ b | duration:"HH:mm:ss" }}
+{{ c | duration:"H:mm:ss" }}

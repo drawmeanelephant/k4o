@@ -49,12 +49,10 @@ pub const entries = markup.names ++ text.names ++ numbers.names ++
 
 pub const blocked_names = [_][]const u8{ "html_to_json", "remove_html" };
 
-/// Registered names whose implementations have not landed yet (the
-/// property test skips these; every name here needs a fixture before it
-/// can leave the list).
-pub const pending = [_][]const u8{
-    "date", "date_modify", "duration",
-};
+/// Registered names whose implementations have not landed yet — the
+/// property test skips these. Empty: every registered filter has an
+/// implementation and a fixture.
+pub const pending = [_][]const u8{};
 
 pub fn registry() []const []const u8 {
     return &entries;

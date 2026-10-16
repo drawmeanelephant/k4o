@@ -79,7 +79,11 @@ def invoke(command, *, input=None):
 
 def check_result(result, name, status):
     if status == "ok":
-        assert result.returncode == 0 and not result.stderr, (
+        # A clean render may still warn — the oracle prints `warning`
+        # diagnostics (e.g. `Invalid Date` passthrough) on exit 0. Only
+        # `error` lines are fatal.
+        fatal = any(b"error" in line for line in result.stderr.splitlines())
+        assert result.returncode == 0 and not fatal, (
             f"{name}: expected clean exit 0, got {result.returncode}: {result.stderr!r}"
         )
     else:
