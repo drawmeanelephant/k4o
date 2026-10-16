@@ -18,7 +18,7 @@ pub const names = [_][]const u8{
     "h5",           "h6",        "bold",        "italic",
     "code",         "code_block", "blockquote", "list",
     "link",         "image",     "hr",          "hard_break",
-    "escape_md",    "fragment_link",
+    "escape_md",    "fragment_link", "embed",
 };
 
 pub fn apply(
@@ -110,6 +110,9 @@ pub fn apply(
     }
     if (std.mem.eql(u8, name, "fragment_link")) {
         return emitFragmentLink(it, call, input);
+    }
+    if (std.mem.eql(u8, name, "embed")) {
+        return emitEmbed(it, call, input);
     }
     return null;
 }
@@ -446,6 +449,14 @@ fn makeArray(it: *Interp, items: []Value) Error!*const Value {
 const HrPos = enum { before, after, both };
 
 fn hr(pos: HrPos, it: *Interp, s: []const u8) Error![]const u8 {
+    // Empty text emits the rule(s) alone — `{{ "" | hr }}` is `---`, not
+    // a bare blank line.
+    if (s.len == 0) {
+        return switch (pos) {
+            .before, .after => "---",
+            .both => "---\n\n---",
+        };
+    }
     return switch (pos) {
         .before => try std.fmt.allocPrint(it.alloc, "---\n\n{s}", .{s}),
         .after => try std.fmt.allocPrint(it.alloc, "{s}\n\n---", .{s}),
@@ -495,4 +506,62 @@ fn appendPct(out: *std.ArrayList(u8), alloc: std.mem.Allocator, c: u8) Error!voi
     try out.append(alloc, '%');
     try out.append(alloc, hex[c >> 4]);
     try out.append(alloc, hex[c & 0xF]);
+}
+
+/// `embed`: Obsidian-style `![[target]]` — strings emit `![[x]]` or
+/// `![[x|alias]]`; arrays emit one per element (alias arg applies to
+/// each); objects emit `["![[k|v]]", ...]` for each key/alias pair;
+/// other scalars pass through and null renders empty.
+fn emitEmbed(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*const Value {
+    const arg = try filters.paramText(it, call, 0);
+    try filters.arity(it, call, 1);
+    const v = try filters.normalizeInput(it, input);
+    switch (v.*) {
+        .string => |str| return emitEmbedOne(it, str, arg),
+        .array => |arr| {
+            var items = std.json.Array.init(it.alloc);
+            for (arr.items) |*item| {
+                if (item.* == .string) {
+                    const val = try emitEmbedOne(it, item.string, arg);
+                    try items.append(val.*);
+                } else {
+                    try items.append(item.*);
+                }
+            }
+            return it.make(.{ .array = items });
+        },
+        .object => |obj| {
+            // Object embeds serialize `["![[k|v]]", ...]` as a *string* —
+            // downstream filters reparse it via normalizeInput, and the
+            // rendered text keeps its brackets (`["![[a|x]]"]`), unlike a
+            // typed 1-element array which would unwrap at output.
+            var items = std.ArrayList(u8).empty;
+            try items.append(it.alloc, '[');
+            const keys = try engine.jsObjectKeys(it.alloc, obj);
+            for (keys, 0..) |key, i| {
+                const val = obj.getPtr(key).?;
+                const alias = try filters.jsToString(it.alloc, val);
+                if (i > 0) try items.append(it.alloc, ',');
+                try items.append(it.alloc, '"');
+                const s = try std.fmt.allocPrint(it.alloc, "![[{s}|{s}]]", .{ key, alias });
+                for (s) |c| {
+                    if (c == '"' or c == '\\') try items.append(it.alloc, '\\');
+                    try items.append(it.alloc, c);
+                }
+                try items.append(it.alloc, '"');
+            }
+            try items.append(it.alloc, ']');
+            return it.make(.{ .string = items.items });
+        },
+        .null => return it.make(.{ .string = "" }),
+        else => return input,
+    }
+}
+
+fn emitEmbedOne(it: *Interp, text: []const u8, alias: ?[]const u8) Error!*const Value {
+    const s = if (alias) |a|
+        try std.fmt.allocPrint(it.alloc, "![[{s}|{s}]]", .{ text, a })
+    else
+        try std.fmt.allocPrint(it.alloc, "![[{s}]]", .{text});
+    return it.make(.{ .string = s });
 }

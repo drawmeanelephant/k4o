@@ -46,8 +46,8 @@ pub const entries = markup.names ++ text.names ++ numbers.names ++
 
 /// Filters that exist in the oracle but cannot work in an embeddable
 /// engine: DOM-dependent (upstream segregates them into `knap/html`) or a
-/// vault resolver (`embed`, decided non-implementable in KNAP-FIDELITY.md).
-pub const blocked_names = [_][]const u8{ "html_to_json", "remove_html", "embed" };
+
+pub const blocked_names = [_][]const u8{ "html_to_json", "remove_html" };
 
 /// Registered names whose implementations have not landed yet (the
 /// property test skips these; every name here needs a fixture before it
@@ -207,6 +207,22 @@ pub fn normalizeInput(it: *Interp, input: *const Value) Error!*const Value {
             if (t.len < 2 or (t[0] != '[' and t[0] != '{')) return input;
             const parsed = std.json.parseFromSliceLeaky(Value, it.alloc, t, .{}) catch return input;
             return it.make(parsed);
+        },
+        // Filters see a single-element primitive array as the element —
+        // `["A b"] | fragment_link` is a scalar passthrough, matching the
+        // same unwrap `{{ ["a"] }}` applies at output. Null, containers
+        // and the undefined sentinel stay wrapped.
+        .array => |arr| {
+            if (arr.items.len != 1) return input;
+            const elem = arr.items[0];
+            return switch (elem) {
+                .bool, .integer, .float, .string => it.make(elem),
+                .number_string => |ns| if (!std.mem.eql(u8, ns, "undefined"))
+                    it.make(elem)
+                else
+                    input,
+                else => input,
+            };
         },
         else => return input,
     }
