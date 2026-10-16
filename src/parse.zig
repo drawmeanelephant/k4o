@@ -957,7 +957,23 @@ const Scanner = struct {
                 const start = s.pos;
                 while (s.pos < s.text.len and isBareChar(s.text[s.pos])) s.pos += 1;
                 if (s.pos == start) return s.err("expected a filter argument", .{});
-                primary = .{ .literal = .{ .string = .{ .value = s.text[start..s.pos], .raw = s.text[start..s.pos] } } };
+                const tok = s.text[start..s.pos];
+                // knap tokenizes `1e1`/`0x10` as a malformed number and
+                // errors; only `5n`-style nth patterns may carry letters
+                // after a leading digit run.
+                if (std.ascii.isDigit(tok[0])) {
+                    var has_letter = false;
+                    for (tok) |ch| {
+                        if (std.ascii.isAlphabetic(ch)) has_letter = true;
+                    }
+                    const nth_pat = tok.len >= 2 and tok[tok.len - 1] == 'n' and
+                        std.fmt.parseInt(u64, tok[0 .. tok.len - 1], 10) != error.InvalidCharacter;
+                    if (has_letter and !nth_pat) {
+                        s.pos = save;
+                        return s.err("invalid number literal", .{});
+                    }
+                }
+                primary = .{ .literal = .{ .string = .{ .value = tok, .raw = tok } } };
             }
         } else if (c == '(') {
             // Nested parenthesized expression — treat like a literal arg group.
