@@ -565,10 +565,6 @@ fn localMs(zone: *const Zone, year: i64, month0: i64, day: i64, h: i64, mi: i64,
     return naive - off0 * 1000;
 }
 
-fn adjustedYear(y: i64) i64 {
-    return if (y >= 0 and y <= 99) y + 1900 else y;
-}
-
 // --------------------------------------------------------------------
 // Lenient parse: bundled-dayjs regex, then a Date.parse-style fallback.
 
@@ -736,7 +732,7 @@ fn v8Parse(s_in: []const u8) ?ParseResult {
                     while (j + nd < s.len and std.ascii.isDigit(s[j + nd])) : (nd += 1) sv = sv * 10 + (s[j + nd] - '0');
                     second = if (nd == 0) 0 else if (sv > 59) 0 else sv;
                     j += nd;
-                    if (j < s.len and (s[j] == '.' or s[j] == ',')) {
+                    if (j < s.len and s[j] == '.') {
                         j += 1;
                         var frac: i64 = 0;
                         var scale: i64 = 100;
@@ -798,7 +794,7 @@ fn v8Parse(s_in: []const u8) ?ParseResult {
             while (j + nd < s.len and std.ascii.isDigit(s[j + nd])) : (nd += 1) v = v * 10 + (s[j + nd] - '0');
             const neg = c == '-';
             const signed_time = nd > 0 and j + nd < s.len and s[j + nd] == ':';
-            if (saw_time and nd > 0 and (signed_time or nd == 4 or nd == 2)) {
+            if (saw_time and nd > 0 and (signed_time or nd == 4)) {
                 var tmin = v;
                 if (signed_time) {
                     j += nd + 1;
@@ -829,6 +825,10 @@ fn v8Parse(s_in: []const u8) ?ParseResult {
         i += 1;
         prev_was_num = false;
     }
+
+    // V8's ISO path (`T` between date and time) is whitespace-intolerant
+    // even at the edges — " 2024-12-01T23:59:59 " is invalid.
+    if (saw_iso_t and std.mem.indexOfAny(u8, s_in, " \t\r\n\x0b\x0c") != null) return null;
 
     if (nnum == 0 and month < 0) return null; // no date components at all
 
@@ -907,7 +907,7 @@ fn v8Parse(s_in: []const u8) ?ParseResult {
 }
 
 fn parseLenient(text: []const u8, zone: *const Zone) ?i64 {
-    const t = std.mem.trim(u8, text, " \t\r\n\x0b\x0c");
+    const t = text;
     if (t.len == 0) return null;
     const ends_z = t[t.len - 1] == 'Z' or t[t.len - 1] == 'z';
     if (!ends_z) {
@@ -1081,9 +1081,7 @@ fn strictTokenAt(s: []const u8) ?StrictTok {
 /// One strict-parse token's match at or after `r` in `e` — regexes are
 /// unanchored, matching the plugin's `exec(e.slice(r))`. Returns the
 /// matched text and records the field.
-const NumWord = union(enum) { num: i64, word: []const u8 };
-
-fn strictMatch(e: []const u8, r: usize, tok: StrictTok, f: *StrictFields) ?NumWord {
+fn strictMatch(e: []const u8, r: usize, tok: StrictTok, f: *StrictFields) ?[]const u8 {
     const hay = e[@min(r, e.len)..];
     switch (tok.id) {
         'S' => {
@@ -1094,7 +1092,7 @@ fn strictMatch(e: []const u8, r: usize, tok: StrictTok, f: *StrictFields) ?NumWo
                 2 => 10,
                 else => 1,
             };
-            return .{ .word = hay[m.start..m.end] };
+            return hay[m.start..m.end];
         },
         's', 'm', 'H', 'h', 'D', 'w' => {
             const m = matchDigits(hay, tok.len, 2) orelse return null;
@@ -1107,13 +1105,13 @@ fn strictMatch(e: []const u8, r: usize, tok: StrictTok, f: *StrictFields) ?NumWo
                 'w' => f.week = v,
                 else => unreachable,
             }
-            return .{ .word = hay[m.start..m.end] };
+            return hay[m.start..m.end];
         },
         'M' => {
             if (tok.len <= 2) {
                 const m = matchDigits(hay, tok.len, 2) orelse return null;
                 f.month = m.value;
-                return .{ .word = hay[m.start..m.end] };
+                return hay[m.start..m.end];
             }
             const m = matchNumWord(hay) orelse return null;
             const w = hay[m.start..m.end];
@@ -1121,14 +1119,14 @@ fn strictMatch(e: []const u8, r: usize, tok: StrictTok, f: *StrictFields) ?NumWo
                 for (months_short, 0..) |name, idx| {
                     if (std.ascii.eqlIgnoreCase(w, name)) {
                         f.month = @intCast(idx + 1);
-                        return .{ .word = w };
+                        return w;
                     }
                 }
             } else {
                 for (months_full, 0..) |name, idx| {
                     if (std.ascii.eqlIgnoreCase(w, name)) {
                         f.month = @intCast(idx + 1);
-                        return .{ .word = w };
+                        return w;
                     }
                 }
             }
@@ -1150,13 +1148,13 @@ fn strictMatch(e: []const u8, r: usize, tok: StrictTok, f: *StrictFields) ?NumWo
                 const o = std.fmt.bufPrint(&nb, "{d}{s}", .{ k, ordinalSuffix(k) }) catch unreachable;
                 if (std.mem.eql(u8, o, w)) f.day = k;
             }
-            return .{ .word = w };
+            return w;
         },
         'Y' => {
             if (tok.len == 4) {
                 const m = matchDigits(hay, 4, 4) orelse return null;
                 f.year = m.value;
-                return .{ .word = hay[m.start..m.end] };
+                return hay[m.start..m.end];
             }
             // Y: [+-]?\d+
             const idx = std.mem.indexOfAny(u8, hay, "+-0123456789") orelse return null;
@@ -1171,18 +1169,18 @@ fn strictMatch(e: []const u8, r: usize, tok: StrictTok, f: *StrictFields) ?NumWo
             while (j + nd < hay.len and std.ascii.isDigit(hay[j + nd])) : (nd += 1) v = v * 10 + (hay[j + nd] - '0');
             if (nd == 0) return null;
             f.year = if (neg) -v else v;
-            return .{ .word = hay[idx .. j + nd] };
+            return hay[idx .. j + nd];
         },
         'y' => { // YY: \d\d -> pivot at 68
             const m = matchDigits(hay, 2, 2) orelse return null;
             f.year = m.value + (if (m.value > 68) @as(i64, 1900) else 2000);
-            return .{ .word = hay[m.start..m.end] };
+            return hay[m.start..m.end];
         },
         'A', 'a' => {
             const m = matchNumWord(hay) orelse return null;
             const w = hay[m.start..m.end];
             f.pm = std.mem.eql(u8, w, if (tok.id == 'a') "pm" else "PM");
-            return .{ .word = w };
+            return w;
         },
         'Z' => {
             // /[+-]\d\d:?(\d\d)?|Z/ — offset alternative tried first.
@@ -1206,11 +1204,11 @@ fn strictMatch(e: []const u8, r: usize, tok: StrictTok, f: *StrictFields) ?NumWo
                     var off = hh * 60 + mm;
                     if (off != 0 and hay[idx] == '+') off = -off;
                     f.zone_min = off;
-                    return .{ .word = hay[idx..end] };
+                    return hay[idx..end];
                 }
                 if (c == 'Z') {
                     f.zone_min = 0;
-                    return .{ .word = hay[idx .. idx + 1] };
+                    return hay[idx .. idx + 1];
                 }
             }
             return null;
@@ -1218,17 +1216,17 @@ fn strictMatch(e: []const u8, r: usize, tok: StrictTok, f: *StrictFields) ?NumWo
         'Q' => {
             const m = matchDigits(hay, 1, 1) orelse return null;
             f.month = 3 * (m.value - 1) + 1;
-            return .{ .word = hay[m.start..m.end] };
+            return hay[m.start..m.end];
         },
         'X' => { // epoch seconds
             const m = matchDigits(hay, 1, 20) orelse return null;
             f.epoch_ms = m.value * 1000;
-            return .{ .word = hay[m.start..m.end] };
+            return hay[m.start..m.end];
         },
         'x' => { // epoch milliseconds
             const m = matchDigits(hay, 1, 20) orelse return null;
             f.epoch_ms = m.value;
-            return .{ .word = hay[m.start..m.end] };
+            return hay[m.start..m.end];
         },
         else => return null,
     }
@@ -1312,7 +1310,7 @@ fn strictParse(it: *Interp, call: parse.FilterCall, text: []const u8, fmt: []con
             .lit => r += tok.lit.len,
             .tok => {
                 const m = strictMatch(e, r, tok, &fields) orelse return null;
-                e = try replaceFirst(it.alloc, e, m.word);
+                e = try replaceFirst(it.alloc, e, m);
             },
         }
     }
