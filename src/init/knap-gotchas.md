@@ -4,24 +4,26 @@
 The sharp edges, in order of how often they bite. Everything here is
 verified behavior of the local `k4o` engine — not folklore.
 
-## `{{ a or b }}` silently reads a variable named "a or b"
+## Spaced names — `{{ my field }}` — but operator words end them
 
-Names inside `{{ }}` may contain spaces, so after a bare name the parser
-keeps joining words — `and`, `or` and `contains` included:
+Names inside `{{ }}` may contain spaces, but only non-keyword words
+join the name. `and`/`or`/`not`/`contains`/`in` (plus `true`/`false`/
+`null` and the tag keywords) are always read as operators:
 
 ```text
-{{ a or b }}            a variable literally named "a or b" — usually
-                        missing, so it renders EMPTY with no error
-{{ a contains "x" }}    syntax error ("a contains" is the name)
+{{ a or b }}            the condition `a or b` — `false` when both are
+                        falsy, even if a variable literally named
+                        "a or b" exists
+{{ my or field }}       `my or field` — `or` splits mid-name
+{{ a in b }}            parse error — `in` is reserved
+{{ a andy b }}          a variable named "a andy b" — `andy` is not a
+                        keyword, so the whole run joins
 {{ a && b }}            works — symbols are not name characters
-{{ a == 1 and b }}      works — a comparison ends the operand
 {{ not a }}             works — `not`/`!` at the front is fine
 ```
 
-Inside parentheses the same rule applies: `{{ (a or b) }}` still reads
-the name "a or b". In `{% if %}` conditions all word forms are safe —
-spaced names are an output-tag feature only. Rule of thumb: in `{{ }}`,
-use the symbolic operators.
+The same grammar applies inside parentheses and in `{% if %}`:
+`{{ (a or b) }}` is the condition `a or b`, never the spaced name.
 
 ## `{{- -}}` and `{%- -%}` are rejected
 
