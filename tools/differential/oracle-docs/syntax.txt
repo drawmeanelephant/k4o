@@ -1,0 +1,42 @@
+Knap template syntax
+
+Values and properties:
+  {{ title }}                 Variable supplied by JSON data
+  {{ author.name }}           Nested object property
+  {{ authors[0].name }}       Array item property
+  {{ metadata["a:b"] }}        Quoted property key
+  {{ First name }}            Variable name containing spaces
+
+Filters run left to right; parameters follow a colon:
+  {{ title | trim | upper }}
+  {{ published | date:"YYYY-MM-DD" }}
+  {{ text | truncate:(100, "...") }}
+
+Logic:
+  {% if published %}Published{% else %}Draft{% endif %}
+  {% for item in items %}{{ item.name }}{% endfor %}
+  {% set slug = title | kebab %}{{ slug }}
+
+Comments:
+  {# Removed from the output. Contents are not evaluated. #}
+Comments can span multiple lines and preserve surrounding whitespace.
+They end at the first #}, do not nest, and require a closing #}.
+
+Conditions accept ==, !=, >, <, >=, <=, contains, and / &&, or / ||,
+not / !, and parentheses. Conditions treat false, null, undefined, empty
+strings, zero, and empty arrays as false. Other values are treated as true.
+
+Fallbacks use the first value treated as true (so zero and false use the fallback):
+  {{ title ?? headline ?? "Untitled" }}
+Filters bind before ??, which has the lowest precedence.
+
+Whitespace control trims adjacent whitespace with a dash:
+  {{- title -}}
+  {%- set slug = title | kebab -%}
+Standalone logic tag lines are removed; loop iterations use line breaks.
+
+The CLI supplies variables from JSON, or CSV records in batch mode.
+Browser selectors, prompt execution, and other host integrations are not
+available in the CLI. DOM-dependent HTML filters require the library API.
+
+Next: knap help filters | knap help tags | knap validate --help

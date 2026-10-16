@@ -1,0 +1,2310 @@
+=== blockquote ===
+blockquote
+
+Prefix every line as a Markdown blockquote.
+
+Syntax:
+  {{ value | blockquote }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"quote":"First line\nSecond line"}
+  Template: "{{ quote | blockquote }}"
+  Output: "> First line\n> Second line"
+
+Reference: knap help filters | knap help syntax
+=== bold ===
+bold
+
+Wrap text in Markdown bold markers.
+
+Syntax:
+  {{ value | bold }}
+  {{ value | bold:_ }}
+
+Parameters:
+  The default marker is `*`. Pass `_` to use the alternate underscore syntax. The marker is doubled around the value.
+
+Parameter example: {{ value | bold:_ }}
+
+Notes:
+  Leading and trailing whitespace stays outside inline markers.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Asterisks:
+  Data: {"text":"Important"}
+  Template: "{{ text | bold }}"
+  Output: "**Important**"
+
+Underscores:
+  Data: {"text":"Important"}
+  Template: "{{ text | bold:_ }}"
+  Output: "__Important__"
+
+Reference: knap help filters | knap help syntax
+=== calc ===
+calc
+
+Apply a simple arithmetic operation to a number.
+
+Syntax:
+  {{ value | calc:"+10" }}
+  {{ value | calc:"*2" }}
+  {{ value | calc:"**3" }}
+
+Parameters:
+  Supported operators are `+`, `-`, `*`, `/`, `**`, and `^`.
+
+Parameter example: {{ value | calc:"+10" }}
+
+Notes:
+  Successful arithmetic returns a number, including when the input is numeric text.
+  Blank, non-numeric, and non-finite input or results are returned unchanged with a warning. Missing and `null` values pass through silently.
+
+Examples (JSON strings show exact whitespace):
+
+Addition:
+  Data: {"count":5}
+  Template: "{{ count | calc:\"+10\" }}"
+  Output: "15"
+
+Exponentiation:
+  Data: {"count":2}
+  Template: "{{ count | calc:\"**3\" }}"
+  Output: "8"
+
+Reference: knap help filters | knap help syntax
+=== callout ===
+callout
+
+Create a callout.
+
+Syntax:
+  {{ value | callout }}
+  {{ value | callout:("info", "Title", false) }}
+
+Parameters:
+  Parameters are callout type, optional title, and optional fold state.
+  The type defaults to `info` and the title defaults to empty.
+  Use `true` for collapsed, `false` for expanded, or omit the fold state for a non-foldable callout.
+
+Parameter example: {{ value | callout:info }}
+
+Notes:
+  Output uses Obsidian's blockquote-based callout syntax. Callouts are also known as alerts or admonitions in other Markdown systems.
+
+Examples (JSON strings show exact whitespace):
+
+Type and title:
+  Data: {"message":"Remember this"}
+  Template: "{{ message | callout:(\"tip\", \"Note\") }}"
+  Output: "> [!tip] Note\n> Remember this"
+
+Collapsed callout:
+  Data: {"message":"More details"}
+  Template: "{{ message | callout:(\"info\", \"Details\", true) }}"
+  Output: "> [!info]- Details\n> More details"
+
+Reference: knap help filters | knap help syntax
+=== camel ===
+camel
+
+Convert text to camelCase.
+
+Syntax:
+  {{ value | camel }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Hello world"}
+  Template: "{{ title | camel }}"
+  Output: "helloWorld"
+
+Reference: knap help filters | knap help syntax
+=== capitalize ===
+capitalize
+
+Uppercase the first character and lowercase the rest.
+
+Syntax:
+  {{ value | capitalize }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"hELLO wORLD"}
+  Template: "{{ title | capitalize }}"
+  Output: "Hello world"
+
+Reference: knap help filters | knap help syntax
+=== code ===
+code
+
+Format inline code or a fenced code block.
+
+Syntax:
+  {{ value | code }}
+  {{ value | code:"typescript" }}
+
+Parameters:
+  An optional language creates a fenced code block and adds the language after the opening fence.
+
+Parameter example: {{ value | code:"typescript" }}
+
+Notes:
+  Multiline data automatically becomes a fenced block. Backtick delimiters grow when needed to contain backticks safely.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Inline:
+  Data: {"source":"const answer = 42"}
+  Template: "{{ source | code }}"
+  Output: "`const answer = 42`"
+
+Language block:
+  Data: {"source":"const answer = 42"}
+  Template: "{{ source | code:\"typescript\" }}"
+  Output: "```typescript\nconst answer = 42\n```"
+
+Reference: knap help filters | knap help syntax
+=== code_block ===
+code_block
+
+Create a fenced code block.
+
+Syntax:
+  {{ value | code_block }}
+  {{ value | code_block:"typescript" }}
+
+Parameters:
+  Use this filter to explicitly create a code block. The `code` filter defaults to inline code using backticks, and automatically creates a fenced code block for multiline values or when a language is specified.
+  The optional language is added after the opening fence.
+
+Parameter example: {{ value | code_block:"typescript" }}
+
+Notes:
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"source":"const answer = 42"}
+  Template: "{{ source | code_block:\"typescript\" }}"
+  Output: "```typescript\nconst answer = 42\n```"
+
+Reference: knap help filters | knap help syntax
+=== comment ===
+comment
+
+Wrap text in comment markers.
+
+Syntax:
+  {{ value | comment }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Multiline comments put the opening and closing `%%` markers on separate lines.
+  Leading and trailing whitespace stays outside inline markers.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"note":"Hidden note"}
+  Template: "{{ note | comment }}"
+  Output: "%%Hidden note%%"
+
+Reference: knap help filters | knap help syntax
+=== compact ===
+compact
+
+Remove null and empty-string values from a collection.
+
+Syntax:
+  {{ value | compact }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Whitespace-only strings are empty. The values `0` and `false` are preserved.
+  For objects, matching properties are removed. Nested collections are preserved.
+  Serialized arrays and objects produced by another filter are recognized automatically.
+
+Examples (JSON strings show exact whitespace):
+
+Array:
+  Data: {"items":[null,"","one",0,false,"two"]}
+  Template: "{{ items | compact }}"
+  Output: "[\"one\",0,false,\"two\"]"
+
+Object:
+  Data: {"values":{"empty":"","missing":null,"count":0,"enabled":false}}
+  Template: "{{ values | compact }}"
+  Output: "{\"count\":0,\"enabled\":false}"
+
+Reference: knap help filters | knap help syntax
+=== date ===
+date
+
+Format a date.
+
+Syntax:
+  {{ value | date }}
+  {{ value | date:"YYYY-MM-DD" }}
+  {{ value | date:("YYYY-MM-DD", "MM/DD/YYYY") }}
+
+Parameters:
+  The first parameter is the output format. It defaults to `YYYY-MM-DD`.
+  An optional second parameter describes the data format for strict parsing. The data must match it exactly, including separators and zero padding.
+
+Parameter example: {{ value | date:"YYYY-MM-DD" }}
+
+Notes:
+  Format strings use Day.js tokens. Invalid dates are returned unchanged.
+
+Date formats:
+Combine these case-sensitive tokens in the output format. Wrap literal text in square brackets, for example `[Year] YYYY`. Month and weekday names below use English.
+  Token | Meaning | Output
+  `YY` | Year, last two digits | 24
+  `YYYY` | Year, four digits | 2024
+  `M` | Month number | 1–12
+  `MM` | Month number, padded | 01–12
+  `MMM` | Month abbreviation | Jan–Dec
+  `MMMM` | Month name | January–December
+  `D` | Day in month | 1–31
+  `DD` | Day in month, padded | 01–31
+  `d` | Weekday number (Sunday is 0) | 0–6
+  `dd` | Weekday, two letters | Su–Sa
+  `ddd` | Weekday abbreviation | Sun–Sat
+  `dddd` | Weekday name | Sunday–Saturday
+  `H` | Hour, 24-hour clock | 0–23
+  `HH` | Hour, 24-hour clock, padded | 00–23
+  `h` | Hour, 12-hour clock | 1–12
+  `hh` | Hour, 12-hour clock, padded | 01–12
+  `m` | Minute | 0–59
+  `mm` | Minute, padded | 00–59
+  `s` | Second | 0–59
+  `ss` | Second, padded | 00–59
+  `SSS` | Milliseconds, padded | 000–999
+  `Z` | UTC offset with colon | +05:00
+  `ZZ` | UTC offset without colon | +0500
+  `A` | Meridiem, uppercase | AM / PM
+  `a` | Meridiem, lowercase | am / pm
+
+Advanced date formats:
+These additional Day.js output tokens are included in Knap. Localized presets such as `L` and `LL`, the locale week-year token `gggg`, and named time zones (`z`, `zzz`) require plugins that Knap does not enable.
+  Token | Meaning | Output
+  `Q` | Quarter number | 1–4
+  `Do` | Ordinal day in month | 1st–31st
+  `k` | Hour, midnight as 24 | 1–24
+  `kk` | Hour, midnight as 24, padded | 01–24
+  `X` | Unix timestamp in seconds | 1733011200
+  `x` | Unix timestamp in milliseconds | 1733011200000
+  `w` | Week number, locale rules | 1–53
+  `ww` | Week number, locale rules, padded | 01–53
+  `wo` | Ordinal week number, locale rules | 1st–53rd
+  `W` | ISO week number | 1–53
+  `WW` | ISO week number, padded | 01–53
+  `GGGG` | ISO week-numbering year | 2024
+
+Examples (JSON strings show exact whitespace):
+
+Format a date:
+  Data: {"published":"2024-12-01"}
+  Template: "{{ published | date:\"MMMM D, YYYY\" }}"
+  Output: "December 1, 2024"
+
+Specify the data format:
+  Data: {"published":"12/01/2024"}
+  Template: "{{ published | date:(\"YYYY-MM-DD\", \"MM/DD/YYYY\") }}"
+  Output: "2024-12-01"
+
+ISO week and literal text:
+  Data: {"published":"2024-12-01"}
+  Template: "{{ published | date:\"[Week] WW, GGGG\" }}"
+  Output: "Week 48, 2024"
+
+Reference: knap help filters | knap help syntax
+=== date_modify ===
+date_modify
+
+Add or subtract a date interval.
+
+Syntax:
+  {{ value | date_modify:"+1 day" }}
+
+Parameters:
+  Use a signed whole-number amount followed by `year`, `month`, `week`, `day`, `hour`, `minute`, or `second`. Singular and plural units are accepted.
+
+Parameter example: {{ value | date_modify:"+1 day" }}
+
+Notes:
+  The result uses `YYYY-MM-DD`. Hours, minutes, and seconds can change the date when they cross midnight, but the time is omitted.
+  Chain the `date` filter after `date_modify` to choose another output format.
+
+Date modification units:
+Use `+` to add or `-` to subtract. These are the Day.js units accepted by Knap; shorthand units, quarters, milliseconds, and decimal amounts are not supported.
+  Unit | Plural | Example modifier
+  `year` | `years` | `+1 year`
+  `month` | `months` | `-2 months`
+  `week` | `weeks` | `+1 week`
+  `day` | `days` | `-3 days`
+  `hour` | `hours` | `+4 hours`
+  `minute` | `minutes` | `-30 minutes`
+  `second` | `seconds` | `+90 seconds`
+
+Examples (JSON strings show exact whitespace):
+
+Add time:
+  Data: {"published":"2024-12-01"}
+  Template: "{{ published | date_modify:\"+1 year\" }}"
+  Output: "2025-12-01"
+
+Subtract time:
+  Data: {"published":"2024-12-01"}
+  Template: "{{ published | date_modify:\"-2 months\" }}"
+  Output: "2024-10-01"
+
+Cross midnight and format:
+  Data: {"published":"2024-12-01T22:00:00"}
+  Template: "{{ published | date_modify:\"+4 hours\" | date:\"MMMM D, YYYY\" }}"
+  Output: "December 2, 2024"
+
+Reference: knap help filters | knap help syntax
+=== decode_uri ===
+decode_uri
+
+Decode percent-encoded URI text.
+
+Syntax:
+  {{ value | decode_uri }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Malformed URI sequences are returned unchanged.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Unicode text:
+  Data: {"value":"%E4%BD%A0%E5%A5%BD"}
+  Template: "{{ value | decode_uri }}"
+  Output: "你好"
+
+Spaces:
+  Data: {"value":"hello%20world"}
+  Template: "{{ value | decode_uri }}"
+  Output: "hello world"
+
+Reference: knap help filters | knap help syntax
+=== duration ===
+duration
+
+Format seconds or an ISO 8601 duration.
+
+Syntax:
+  {{ value | duration }}
+  {{ value | duration:"H:mm:ss" }}
+
+Parameters:
+  The optional format supports `H` and `HH` for hours, `m` and `mm` for minutes, and `s` and `ss` for seconds.
+
+Notes:
+  Without a format, durations of at least one hour use `HH:mm:ss`; shorter durations use `mm:ss`.
+  Data may be an ISO 8601 duration or a number of seconds.
+
+Duration formats:
+Knap supports the six tokens below. Hours represent the total duration and can exceed 23; minutes and seconds are the remaining components. Other Day.js duration tokens and square-bracket escaping are not supported.
+  Token | Meaning | Output for 3665 seconds
+  `H` | Total hours | 1
+  `HH` | Total hours, at least two digits | 01
+  `m` | Remaining minutes (0–59) | 1
+  `mm` | Remaining minutes, padded (00–59) | 01
+  `s` | Remaining seconds (0–59) | 5
+  `ss` | Remaining seconds, padded (00–59) | 05
+
+Examples (JSON strings show exact whitespace):
+
+ISO 8601 duration:
+  Data: {"duration":"PT1H30M"}
+  Template: "{{ duration | duration:\"HH:mm:ss\" }}"
+  Output: "01:30:00"
+
+Seconds:
+  Data: {"seconds":3665}
+  Template: "{{ seconds | duration:\"H:mm:ss\" }}"
+  Output: "1:01:05"
+
+Default format:
+  Data: {"duration":"PT5M30S"}
+  Template: "{{ duration | duration }}"
+  Output: "05:30"
+
+More than 24 hours:
+  Data: {"duration":"P1DT2H"}
+  Template: "{{ duration | duration:\"HH:mm:ss\" }}"
+  Output: "26:00:00"
+
+Reference: knap help filters | knap help syntax
+=== embed ===
+embed
+
+Create an embedded wiki reference.
+
+Syntax:
+  {{ value | embed }}
+  {{ value | embed:"Preview" }}
+
+Parameters:
+  The optional parameter sets an alias for string and array values.
+
+Parameter example: {{ value | embed:"Preview" }}
+
+Notes:
+  For object values, keys are targets and values are aliases.
+
+Examples (JSON strings show exact whitespace):
+
+File:
+  Data: {"target":"diagram.png"}
+  Template: "{{ target | embed }}"
+  Output: "![[diagram.png]]"
+
+Alias:
+  Data: {"target":"Project Atlas"}
+  Template: "{{ target | embed:\"Preview\" }}"
+  Output: "![[Project Atlas|Preview]]"
+
+Array data:
+  Data: {"targets":["one.md","two.md"]}
+  Template: "{{ targets | embed }}"
+  Output: "[\"![[one.md]]\",\"![[two.md]]\"]"
+
+Reference: knap help filters | knap help syntax
+=== encode_uri ===
+encode_uri
+
+Encode text for use as a URI component.
+
+Syntax:
+  {{ value | encode_uri }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Reserved characters such as `/`, `?`, and `&` are encoded.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"value":"hello world/你好"}
+  Template: "{{ value | encode_uri }}"
+  Output: "hello%20world%2F%E4%BD%A0%E5%A5%BD"
+
+Reference: knap help filters | knap help syntax
+=== escape_md ===
+escape_md
+
+Escape Markdown punctuation so text renders literally.
+
+Syntax:
+  {{ value | escape_md }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Every ASCII punctuation character supported by Markdown backslash escapes is prefixed with a backslash.
+  Existing backslashes are escaped so they remain visible.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"text":"# Draft *title*"}
+  Template: "{{ text | escape_md }}"
+  Output: "\\# Draft \\*title\\*"
+
+Reference: knap help filters | knap help syntax
+=== first ===
+first
+
+Return the first item in an array.
+
+Syntax:
+  {{ value | first }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  The selected value keeps its type. Non-array input passes through unchanged, and an empty array returns `null`.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"items":["a","b","c"]}
+  Template: "{{ items | first }}"
+  Output: "a"
+
+Reference: knap help filters | knap help syntax
+=== footnote ===
+footnote
+
+Convert an array or object to Markdown footnote definitions.
+
+Syntax:
+  {{ value | footnote }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Arrays use one-based numeric labels. Object keys are converted to kebab-case labels.
+
+Examples (JSON strings show exact whitespace):
+
+Array footnotes:
+  Data: {"notes":["First item","Second item"]}
+  Template: "{{ notes | footnote }}"
+  Output: "[^1]: First item\n\n[^2]: Second item"
+
+Object footnotes:
+  Data: {"notes":{"First Note":"Content 1","Second Note":"Content 2"}}
+  Template: "{{ notes | footnote }}"
+  Output: "[^first-note]: Content 1\n\n[^second-note]: Content 2"
+
+Reference: knap help filters | knap help syntax
+=== fragment_link ===
+fragment_link
+
+Add a source URL with a text-fragment anchor to highlights.
+
+Syntax:
+  {{ value | fragment_link:"https://example.com" }}
+  {{ value | fragment_link:"Source:https://example.com" }}
+
+Parameters:
+  Pass a source URL. Prefix it with custom link text and a colon to replace the default `link` text.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"highlights":["Selected text","Another passage"]}
+  Template: "{{ highlights | fragment_link:\"https://example.com\" }}"
+  Output: "[\"Selected text [link](https://example.com#:~:text=Selected%20text)\",\"Another passage [link](https://example.com#:~:text=Another%20passage)\"]"
+
+Custom link text:
+  Data: {"highlights":["Selected text","Another passage"]}
+  Template: "{{ highlights | fragment_link:\"Source:https://example.com\" }}"
+  Output: "[\"Selected text [Source](https://example.com#:~:text=Selected%20text)\",\"Another passage [Source](https://example.com#:~:text=Another%20passage)\"]"
+
+Reference: knap help filters | knap help syntax
+=== h1 ===
+h1
+
+Create a level-one heading.
+
+Syntax:
+  {{ value | h1 }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Each nonempty data line becomes a heading.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Introduction"}
+  Template: "{{ title | h1 }}"
+  Output: "# Introduction"
+
+Reference: knap help filters | knap help syntax
+=== h2 ===
+h2
+
+Create a level-two heading.
+
+Syntax:
+  {{ value | h2 }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Each nonempty data line becomes a heading.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Introduction"}
+  Template: "{{ title | h2 }}"
+  Output: "## Introduction"
+
+Reference: knap help filters | knap help syntax
+=== h3 ===
+h3
+
+Create a level-three heading.
+
+Syntax:
+  {{ value | h3 }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Each nonempty data line becomes a heading.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Introduction"}
+  Template: "{{ title | h3 }}"
+  Output: "### Introduction"
+
+Reference: knap help filters | knap help syntax
+=== h4 ===
+h4
+
+Create a level-four heading.
+
+Syntax:
+  {{ value | h4 }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Each nonempty data line becomes a heading.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Introduction"}
+  Template: "{{ title | h4 }}"
+  Output: "#### Introduction"
+
+Reference: knap help filters | knap help syntax
+=== h5 ===
+h5
+
+Create a level-five heading.
+
+Syntax:
+  {{ value | h5 }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Each nonempty data line becomes a heading.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Introduction"}
+  Template: "{{ title | h5 }}"
+  Output: "##### Introduction"
+
+Reference: knap help filters | knap help syntax
+=== h6 ===
+h6
+
+Create a level-six heading.
+
+Syntax:
+  {{ value | h6 }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Each nonempty data line becomes a heading.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Introduction"}
+  Template: "{{ title | h6 }}"
+  Output: "###### Introduction"
+
+Reference: knap help filters | knap help syntax
+=== hard_break ===
+hard_break
+
+Turn single newlines into Markdown hard line breaks.
+
+Syntax:
+  {{ value | hard_break }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Two trailing spaces are added before single newlines. Blank lines between paragraphs are preserved.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"text":"First line\nSecond line\n\nNew paragraph"}
+  Template: "{{ text | hard_break }}"
+  Output: "First line  \nSecond line\n\nNew paragraph"
+
+Reference: knap help filters | knap help syntax
+=== highlight ===
+highlight
+
+Wrap text in highlight markers.
+
+Syntax:
+  {{ value | highlight }}
+  {{ value | highlight:blue }}
+
+Parameters:
+  Optionally pass `red`, `orange`, `yellow`, `green`, `blue`, or `purple` to add a color marker.
+
+Parameter example: {{ value | highlight:blue }}
+
+Notes:
+  Leading and trailing whitespace stays outside inline markers.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Default:
+  Data: {"text":"Remember this"}
+  Template: "{{ text | highlight }}"
+  Output: "==Remember this=="
+
+Color:
+  Data: {"text":"Remember this"}
+  Template: "{{ text | highlight:blue }}"
+  Output: "==🔵Remember this=="
+
+Reference: knap help filters | knap help syntax
+=== hr ===
+hr
+
+Place a horizontal rule around text.
+
+Syntax:
+  {{ value | hr }}
+  {{ value | hr:before }}
+  {{ value | hr:both }}
+
+Parameters:
+  Use `after` (the default), `before`, or `both` to choose the rule position.
+
+Parameter example: {{ value | hr:before }}
+
+Notes:
+  The filter emits `---` and separates it from content with a blank line.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+After:
+  Data: {"text":"Section end"}
+  Template: "{{ text | hr }}"
+  Output: "Section end\n\n---"
+
+Before:
+  Data: {"text":"Section start"}
+  Template: "{{ text | hr:before }}"
+  Output: "---\n\nSection start"
+
+Reference: knap help filters | knap help syntax
+=== image ===
+image
+
+Create Markdown image syntax from a URL, array, or object.
+
+Syntax:
+  {{ value | image }}
+  {{ value | image:"Alt text" }}
+
+Parameters:
+  The optional parameter is alt text for string and array values.
+
+Notes:
+  For object values, keys are image URLs and values are alt text.
+
+Examples (JSON strings show exact whitespace):
+
+String data:
+  Data: {"url":"cover.jpg"}
+  Template: "{{ url | image:\"Cover art\" }}"
+  Output: "![Cover art](cover.jpg)"
+
+Array data:
+  Data: {"images":["cover.jpg","diagram.png"]}
+  Template: "{{ images | image:\"Illustration\" }}"
+  Output: "[\"![Illustration](cover.jpg)\",\"![Illustration](diagram.png)\"]"
+
+Object data:
+  Data: {"images":{"cover.jpg":"Cover art","diagram.png":"Architecture diagram"}}
+  Template: "{{ images | image }}"
+  Output: "[\"![Cover art](cover.jpg)\",\"![Architecture diagram](diagram.png)\"]"
+
+Reference: knap help filters | knap help syntax
+=== indent ===
+indent
+
+Indent each non-empty line with spaces.
+
+Syntax:
+  {{ value | indent }}
+  {{ value | indent:2 }}
+
+Parameters:
+  The optional width is an integer from 0 to 1000. It defaults to two spaces; zero leaves the text unchanged.
+
+Parameter example: {{ value | indent:2 }}
+
+Notes:
+  Indents the first line as well as subsequent lines. Existing indentation, empty lines, and line endings are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"text":"First\nSecond"}
+  Template: "{{ text | indent }}"
+  Output: "  First\n  Second"
+
+Choose a width:
+  Data: {"text":"- One\n- Two"}
+  Template: "{{ text | indent:4 }}"
+  Output: "    - One\n    - Two"
+
+Reference: knap help filters | knap help syntax
+=== italic ===
+italic
+
+Wrap text in Markdown italic markers.
+
+Syntax:
+  {{ value | italic }}
+  {{ value | italic:_ }}
+
+Parameters:
+  The default marker is `*`. Pass `_` to use the alternate underscore syntax.
+
+Parameter example: {{ value | italic:_ }}
+
+Notes:
+  Leading and trailing whitespace stays outside inline markers.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Asterisk:
+  Data: {"text":"Emphasized"}
+  Template: "{{ text | italic }}"
+  Output: "*Emphasized*"
+
+Underscore:
+  Data: {"text":"Emphasized"}
+  Template: "{{ text | italic:_ }}"
+  Output: "_Emphasized_"
+
+Reference: knap help filters | knap help syntax
+=== join ===
+join
+
+Join array items with an optional separator.
+
+Syntax:
+  {{ value | join }}
+  {{ value | join:", " }}
+
+Parameters:
+  The default separator is a comma. Escaped newlines are supported.
+
+Parameter example: {{ value | join:", " }}
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"tags":["notes","ideas","books"]}
+  Template: "{{ tags | join:\", \" }}"
+  Output: "notes, ideas, books"
+
+Reference: knap help filters | knap help syntax
+=== kebab ===
+kebab
+
+Convert text to kebab-case.
+
+Syntax:
+  {{ value | kebab }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Hello World"}
+  Template: "{{ title | kebab }}"
+  Output: "hello-world"
+
+Reference: knap help filters | knap help syntax
+=== last ===
+last
+
+Return the last item in an array.
+
+Syntax:
+  {{ value | last }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  The selected value keeps its type. Non-array input passes through unchanged, and an empty array returns `null`.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"items":["a","b","c"]}
+  Template: "{{ items | last }}"
+  Output: "c"
+
+Reference: knap help filters | knap help syntax
+=== length ===
+length
+
+Count string characters, array items, or object keys.
+
+Syntax:
+  {{ value | length }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Returns a number. Singleton arrays retain their collection shape when counted.
+
+Examples (JSON strings show exact whitespace):
+
+Array length:
+  Data: {"tags":["notes","ideas","books"]}
+  Template: "{{ tags | length }}"
+  Output: "3"
+
+String length:
+  Data: {"title":"Knap"}
+  Template: "{{ title | length }}"
+  Output: "4"
+
+Object length:
+  Data: {"author":{"name":"Ada","role":"Writer"}}
+  Template: "{{ author | length }}"
+  Output: "2"
+
+Reference: knap help filters | knap help syntax
+=== link ===
+link
+
+Create Markdown links from a URL, array, or object.
+
+Syntax:
+  {{ value | link }}
+  {{ value | link:"Link text" }}
+
+Parameters:
+  The optional parameter is link text for string and array values.
+
+Notes:
+  For object values, keys are URLs and values are link text.
+
+Examples (JSON strings show exact whitespace):
+
+String data:
+  Data: {"url":"https://example.com"}
+  Template: "{{ url | link:\"Example\" }}"
+  Output: "[Example](https://example.com)"
+
+Array data:
+  Data: {"urls":["https://one.example","https://two.example"]}
+  Template: "{{ urls | link:\"Source\" }}"
+  Output: "[Source](https://one.example)\n[Source](https://two.example)"
+
+Object data:
+  Data: {"links":{"https://one.example":"One","https://two.example":"Two"}}
+  Template: "{{ links | link }}"
+  Output: "[One](https://one.example)\n[Two](https://two.example)"
+
+Reference: knap help filters | knap help syntax
+=== list ===
+list
+
+Convert a value or array to a Markdown list.
+
+Syntax:
+  {{ value | list }}
+  {{ value | list:numbered }}
+  {{ value | list:task }}
+  {{ value | list:numbered-task }}
+
+Parameters:
+  Choose `bullet` (default), `numbered`, `task`, or `numbered-task`.
+
+Parameter example: {{ value | list:numbered }}
+
+Examples (JSON strings show exact whitespace):
+
+Bullet list:
+  Data: {"items":["Apple","Pear"]}
+  Template: "{{ items | list }}"
+  Output: "- Apple\n- Pear"
+
+Numbered list:
+  Data: {"items":["Apple","Pear"]}
+  Template: "{{ items | list:numbered }}"
+  Output: "1. Apple\n2. Pear"
+
+Task list:
+  Data: {"items":["Write draft","Review edits"]}
+  Template: "{{ items | list:task }}"
+  Output: "- [ ] Write draft\n- [ ] Review edits"
+
+Numbered task list:
+  Data: {"items":["Write draft","Review edits"]}
+  Template: "{{ items | list:numbered-task }}"
+  Output: "1. [ ] Write draft\n2. [ ] Review edits"
+
+Reference: knap help filters | knap help syntax
+=== lower ===
+lower
+
+Convert text to lowercase.
+
+Syntax:
+  {{ value | lower }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"HELLO WORLD"}
+  Template: "{{ title | lower }}"
+  Output: "hello world"
+
+Reference: knap help filters | knap help syntax
+=== map ===
+map
+
+Select a property from each array item or map items with an expression.
+
+Syntax:
+  {{ value | map:"name" }}
+  {{ value | map:"author.name" }}
+  {{ value | map:item => item.name }}
+  {{ value | map:item => ({name: item.name}) }}
+  {{ value | map:item => "prefix/${item}" }}
+
+Parameters:
+  Pass a quoted property path for simple selection. Dotted paths select nested own properties.
+  Arrow expressions can select properties, construct a small object, or interpolate an item into a string literal.
+
+Parameter example: {{ value | map:x => x.name }}
+
+Notes:
+  Property selection preserves value types and produces `null` when a path is missing.
+  Built-in filters cannot be called inside an arrow expression. Chain `template` after `map` when you need to render the mapped results.
+
+Examples (JSON strings show exact whitespace):
+
+Property shorthand:
+  Data: {"people":[{"name":"Ada"},{"name":"Lin"}]}
+  Template: "{{ people | map:\"name\" }}"
+  Output: "[\"Ada\",\"Lin\"]"
+
+Nested property:
+  Data: {"people":[{"author":{"name":"Ada"}},{"author":{"name":"Lin"}}]}
+  Template: "{{ people | map:\"author.name\" }}"
+  Output: "[\"Ada\",\"Lin\"]"
+
+Construct objects:
+  Data: {"people":[{"name":"Ada","role":"Engineer"},{"name":"Lin","role":"Designer"}]}
+  Template: "{{ people | map:person => ({name: person.name, role: person.role}) }}"
+  Output: "[{\"name\":\"Ada\",\"role\":\"Engineer\"},{\"name\":\"Lin\",\"role\":\"Designer\"}]"
+
+Build strings:
+  Data: {"genres":["rock","pop"]}
+  Template: "{{ genres | map:item => \"genres/${item}\" }}"
+  Output: "[\"genres/rock\",\"genres/pop\"]"
+
+Reference: knap help filters | knap help syntax
+=== math ===
+math
+
+Format inline math or a math block.
+
+Syntax:
+  {{ value | math }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Multiline data automatically becomes a block delimited by `$$`.
+  Leading and trailing whitespace stays outside inline markers.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"expression":"x^2 + y^2"}
+  Template: "{{ expression | math }}"
+  Output: "$x^2 + y^2$"
+
+Reference: knap help filters | knap help syntax
+=== math_block ===
+math_block
+
+Create a block math expression.
+
+Syntax:
+  {{ value | math_block }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Use this filter to explicitly create a math block. The `math` filter defaults to inline math using a single `$`, and automatically uses `$$` block fences for multiline values.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"expression":"x^2 + y^2"}
+  Template: "{{ expression | math_block }}"
+  Output: "$$\nx^2 + y^2\n$$"
+
+Reference: knap help filters | knap help syntax
+=== merge ===
+merge
+
+Append one or more values to an array.
+
+Syntax:
+  {{ value | merge:"value" }}
+  {{ value | merge:("a", "b") }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Quoted values may contain commas.
+
+Examples (JSON strings show exact whitespace):
+
+Append one value:
+  Data: {"tags":["notes","ideas"]}
+  Template: "{{ tags | merge:\"books\" }}"
+  Output: "[\"notes\",\"ideas\",\"books\"]"
+
+Append multiple values:
+  Data: {"tags":["notes","drafts"]}
+  Template: "{{ tags | merge:(\"ideas\", \"books\") }}"
+  Output: "[\"notes\",\"drafts\",\"ideas\",\"books\"]"
+
+Reference: knap help filters | knap help syntax
+=== nth ===
+nth
+
+Select positions from an array with nth-pattern syntax.
+
+Syntax:
+  {{ value | nth:3 }}
+  {{ value | nth:2n }}
+  {{ value | nth:n+3 }}
+  {{ value | nth:2,3:4 }}
+
+Parameters:
+  Indexes are one-based. Patterns support a single position, every nth item, an offset, or positions within repeating groups.
+
+Parameter example: {{ value | nth:2 }}
+
+Notes:
+  Returns an array whose selected elements keep their types. A singleton primitive array renders as its element in interpolation and text-only filter chains.
+
+Examples (JSON strings show exact whitespace):
+
+Every nth item:
+  Data: {"items":["a","b","c","d","e","f"]}
+  Template: "{{ items | nth:2n }}"
+  Output: "[\"b\",\"d\",\"f\"]"
+
+Repeating groups:
+  Data: {"items":[1,2,3,4,5,6,7,8]}
+  Template: "{{ items | nth:2,3:4 }}"
+  Output: "[2,3,6,7]"
+
+Reference: knap help filters | knap help syntax
+=== number_format ===
+number_format
+
+Add thousands separators and optional decimal places.
+
+Syntax:
+  {{ value | number_format }}
+  {{ value | number_format:2 }}
+  {{ value | number_format:(2, ",", ".") }}
+
+Parameters:
+  Parameters set decimal places, the decimal separator, and the thousands separator, in that order.
+
+Notes:
+  Arrays and objects are formatted recursively. Non-numeric values are left unchanged.
+
+Examples (JSON strings show exact whitespace):
+
+Decimal places:
+  Data: {"amount":1234567.89}
+  Template: "{{ amount | number_format:2 }}"
+  Output: "1,234,567.89"
+
+Custom separators:
+  Data: {"amount":1234.567}
+  Template: "{{ amount | number_format:(2, \",\", \".\") }}"
+  Output: "1.234,57"
+
+Array data:
+  Data: {"amounts":[1200,3500.5]}
+  Template: "{{ amounts | number_format:2 }}"
+  Output: "[\"1,200.00\",\"3,500.50\"]"
+
+Reference: knap help filters | knap help syntax
+=== object ===
+object
+
+Convert an object to keys, values, or key-value pairs.
+
+Syntax:
+  {{ value | object:"keys" }}
+  {{ value | object:"values" }}
+  {{ value | object:"array" }}
+
+Parameters:
+  A mode parameter is required: `keys`, `values`, or `array`. Bare and parenthesized spellings remain supported.
+
+Parameter example: {{ value | object:"keys" }}
+
+Examples (JSON strings show exact whitespace):
+
+Keys:
+  Data: {"person":{"name":"Ada","role":"Writer"}}
+  Template: "{{ person | object:\"keys\" }}"
+  Output: "[\"name\",\"role\"]"
+
+Values:
+  Data: {"person":{"name":"Ada","role":"Writer"}}
+  Template: "{{ person | object:\"values\" }}"
+  Output: "[\"Ada\",\"Writer\"]"
+
+Key-value pairs:
+  Data: {"person":{"name":"Ada","role":"Writer"}}
+  Template: "{{ person | object:\"array\" }}"
+  Output: "[[\"name\",\"Ada\"],[\"role\",\"Writer\"]]"
+
+Reference: knap help filters | knap help syntax
+=== parse_json ===
+parse_json
+
+Parse JSON text into a typed template value.
+
+Syntax:
+  {{ value | parse_json }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Invalid JSON is returned unchanged with a nonfatal warning.
+  Values that are already typed are returned unchanged.
+  Collection-aware filters recognize serialized arrays and objects automatically, so ordinary collection chains do not require `parse_json`.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"value":"[\"one\",\"two\"]"}
+  Template: "{{ value | parse_json | join:\", \" }}"
+  Output: "one, two"
+
+Reference: knap help filters | knap help syntax
+=== pascal ===
+pascal
+
+Convert text to PascalCase.
+
+Syntax:
+  {{ value | pascal }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"hello world"}
+  Template: "{{ title | pascal }}"
+  Output: "HelloWorld"
+
+Reference: knap help filters | knap help syntax
+=== remove_attr ===
+remove_attr
+
+Remove selected attributes from HTML tags.
+
+Syntax:
+  {{ value | remove_attr:"class" }}
+  {{ value | remove_attr:("class", "style") }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+One attribute:
+  Data: {"html":"<div class=\"card\" id=\"intro\">Hello</div>"}
+  Template: "{{ html | remove_attr:\"class\" }}"
+  Output: "<div id=\"intro\">Hello</div>"
+
+Multiple attributes:
+  Data: {"html":"<div class=\"card\" id=\"intro\" style=\"color:red\">Hello</div>"}
+  Template: "{{ html | remove_attr:(\"class\", \"style\") }}"
+  Output: "<div id=\"intro\">Hello</div>"
+
+Reference: knap help filters | knap help syntax
+=== remove_tags ===
+remove_tags
+
+Remove selected HTML tags but keep their content.
+
+Syntax:
+  {{ value | remove_tags:"b" }}
+  {{ value | remove_tags:("b", "em") }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+One tag:
+  Data: {"html":"<p>Hello <b>world</b>!</p>"}
+  Template: "{{ html | remove_tags:\"b\" }}"
+  Output: "<p>Hello world!</p>"
+
+Multiple tags:
+  Data: {"html":"<p><strong>Hello</strong> <em>world</em></p>"}
+  Template: "{{ html | remove_tags:(\"strong\", \"em\") }}"
+  Output: "<p>Hello world</p>"
+
+Reference: knap help filters | knap help syntax
+=== replace ===
+replace
+
+Replace one or more strings or regular expressions.
+
+Syntax:
+  {{ value | replace:"old":"new" }}
+  {{ value | replace:("a":"b", "c":"d") }}
+
+Parameters:
+  Each quoted search value is followed by a colon and its replacement.
+  Regular expressions may include flags, for example `"/[aeiou]/g"`.
+
+Parameter example: {{ value | replace:"old":"new" }}
+
+Notes:
+  Multiple replacements are applied from left to right.
+  Use an empty replacement to remove matching text.
+  Supported regular-expression flags are `g`, `i`, `m`, `s`, `u`, and `y`. Escape template punctuation such as colons or pipes with a backslash when matching it literally.
+
+Examples (JSON strings show exact whitespace):
+
+Remove text:
+  Data: {"message":"hello, world!"}
+  Template: "{{ message | replace:\",\":\"\" }}"
+  Output: "hello world!"
+
+Multiple replacements:
+  Data: {"message":"hello world"}
+  Template: "{{ message | replace:\"e\":\"a\",\"o\":\"0\" }}"
+  Output: "hall0 w0rld"
+
+Regular expression:
+  Data: {"message":"hello world"}
+  Template: "{{ message | replace:\"/[aeiou]/g\":\"*\" }}"
+  Output: "h*ll* w*rld"
+
+Case-insensitive match:
+  Data: {"message":"HELLO world"}
+  Template: "{{ message | replace:\"/hello/i\":\"hi\" }}"
+  Output: "hi world"
+
+Reference: knap help filters | knap help syntax
+=== replace_tags ===
+replace_tags
+
+Rename selected HTML tags while preserving content.
+
+Syntax:
+  {{ value | replace_tags:"strong":"h2" }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"html":"<strong>Title</strong>"}
+  Template: "{{ html | replace_tags:\"strong\":\"h2\" }}"
+  Output: "<h2>Title</h2>"
+
+Reference: knap help filters | knap help syntax
+=== reverse ===
+reverse
+
+Reverse a string, array, or object entry order.
+
+Syntax:
+  {{ value | reverse }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+String:
+  Data: {"word":"abc"}
+  Template: "{{ word | reverse }}"
+  Output: "cba"
+
+Array:
+  Data: {"items":["a","b","c"]}
+  Template: "{{ items | reverse }}"
+  Output: "[\"c\",\"b\",\"a\"]"
+
+Object:
+  Data: {"values":{"first":1,"second":2}}
+  Template: "{{ values | reverse }}"
+  Output: "{\"second\":2,\"first\":1}"
+
+Reference: knap help filters | knap help syntax
+=== round ===
+round
+
+Round a number to an optional number of decimal places.
+
+Syntax:
+  {{ value | round }}
+  {{ value | round:2 }}
+
+Parameters:
+  The optional non-negative parameter sets decimal places.
+
+Parameter example: {{ value | round:2 }}
+
+Notes:
+  Successful rounding returns a number and preserves array or object structure for collection input.
+  Invalid scalar input and non-finite values are preserved with a warning. Missing, `null`, and ordinary non-numeric collection values pass through silently.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"value":3.14159}
+  Template: "{{ value | round:2 }}"
+  Output: "3.14"
+
+Reference: knap help filters | knap help syntax
+=== safe_name ===
+safe_name
+
+Remove characters that are unsafe in file names.
+
+Syntax:
+  {{ value | safe_name }}
+  {{ value | safe_name:windows }}
+
+Parameters:
+  Optionally choose `windows`, `mac`, or `linux` rules. The default is conservative.
+
+Parameter example: {{ value | safe_name:windows }}
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"notes/2024: recap?"}
+  Template: "{{ title | safe_name }}"
+  Output: "notes2024 recap"
+
+Reference: knap help filters | knap help syntax
+=== slice ===
+slice
+
+Extract part of a string or array.
+
+Syntax:
+  {{ value | slice:1 }}
+  {{ value | slice:1,4 }}
+
+Parameters:
+  The first index is inclusive and the second is exclusive. Negative indexes count from the end.
+  With one index, the slice continues to the end. A negative second index excludes items from the end.
+
+Parameter example: {{ value | slice:0,5 }}
+
+Examples (JSON strings show exact whitespace):
+
+String range:
+  Data: {"word":"hello"}
+  Template: "{{ word | slice:1,4 }}"
+  Output: "ell"
+
+Array range:
+  Data: {"items":["a","b","c","d"]}
+  Template: "{{ items | slice:1,3 }}"
+  Output: "[\"b\",\"c\"]"
+
+Negative start:
+  Data: {"word":"hello"}
+  Template: "{{ word | slice:-3 }}"
+  Output: "llo"
+
+Negative end:
+  Data: {"word":"hello"}
+  Template: "{{ word | slice:0,-2 }}"
+  Output: "hel"
+
+Reference: knap help filters | knap help syntax
+=== snake ===
+snake
+
+Convert text to snake_case.
+
+Syntax:
+  {{ value | snake }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Hello World"}
+  Template: "{{ title | snake }}"
+  Output: "hello_world"
+
+Reference: knap help filters | knap help syntax
+=== sort ===
+sort
+
+Sort an array by value or object property.
+
+Syntax:
+  {{ value | sort }}
+  {{ value | sort:"desc" }}
+  {{ value | sort:"name" }}
+  {{ value | sort:("name", "desc") }}
+
+Parameters:
+  Arrays sort in ascending order by default. Pass `desc` to reverse the direction.
+  Pass a property name to sort objects by that property. A dotted path selects a nested property.
+  With both a property and direction, wrap the parameters in parentheses.
+
+Parameter example: {{ value | sort:("name", "desc") }}
+
+Notes:
+  Numbers are compared numerically. Missing and `null` property values remain at the end.
+  Serialized arrays and objects produced by another filter are recognized automatically.
+
+Examples (JSON strings show exact whitespace):
+
+Numbers:
+  Data: {"values":[10,2,1]}
+  Template: "{{ values | sort }}"
+  Output: "[1,2,10]"
+
+Descending:
+  Data: {"values":["a","c","b"]}
+  Template: "{{ values | sort:\"desc\" }}"
+  Output: "[\"c\",\"b\",\"a\"]"
+
+Object property:
+  Data: {"people":[{"name":"Lin"},{"name":"Ada"}]}
+  Template: "{{ people | sort:\"name\" }}"
+  Output: "[{\"name\":\"Ada\"},{\"name\":\"Lin\"}]"
+
+Reference: knap help filters | knap help syntax
+=== split ===
+split
+
+Split a string into a JSON array.
+
+Syntax:
+  {{ value | split }}
+  {{ value | split:"," }}
+  {{ value | split:[0-9] }}
+
+Parameters:
+  Without a separator, the value is split into characters. The separator may be a regular-expression pattern.
+
+Parameter example: {{ value | split:"," }}
+
+Examples (JSON strings show exact whitespace):
+
+Separator:
+  Data: {"value":"a,b,c"}
+  Template: "{{ value | split:\",\" }}"
+  Output: "[\"a\",\"b\",\"c\"]"
+
+Characters:
+  Data: {"value":"abc"}
+  Template: "{{ value | split }}"
+  Output: "[\"a\",\"b\",\"c\"]"
+
+Regular expression:
+  Data: {"value":"a1b2c"}
+  Template: "{{ value | split:[0-9] }}"
+  Output: "[\"a\",\"b\",\"c\"]"
+
+Reference: knap help filters | knap help syntax
+=== strike ===
+strike
+
+Wrap text in Markdown strikethrough markers.
+
+Syntax:
+  {{ value | strike }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Leading and trailing whitespace stays outside inline markers.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"text":"Removed"}
+  Template: "{{ text | strike }}"
+  Output: "~~Removed~~"
+
+Reference: knap help filters | knap help syntax
+=== strip_attr ===
+strip_attr
+
+Remove every HTML attribute except an optional allowlist.
+
+Syntax:
+  {{ value | strip_attr }}
+  {{ value | strip_attr:"href" }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"html":"<a href=\"/about\" class=\"nav\">About</a>"}
+  Template: "{{ html | strip_attr:\"href\" }}"
+  Output: "<a href=\"/about\">About</a>"
+
+Reference: knap help filters | knap help syntax
+=== strip_md ===
+strip_md
+
+Remove Markdown formatting while keeping readable text.
+
+Syntax:
+  {{ value | strip_md }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Removes formatting including emphasis, highlights, headings, code, blockquotes, lists, and wikilinks.
+  Images, tables, footnote references, fenced code blocks, URLs, and HTML tags are removed rather than converted to visible text.
+
+Examples (JSON strings show exact whitespace):
+
+Inline formatting:
+  Data: {"text":"**Bold** and [linked](https://example.com)"}
+  Template: "{{ text | strip_md }}"
+  Output: "Bold and linked"
+
+Block formatting:
+  Data: {"text":"# Heading\n\n> Quoted text"}
+  Template: "{{ text | strip_md }}"
+  Output: "Heading\n\nQuoted text"
+
+Reference: knap help filters | knap help syntax
+=== strip_tags ===
+strip_tags
+
+Remove all HTML tags except an optional allowlist.
+
+Syntax:
+  {{ value | strip_tags }}
+  {{ value | strip_tags:"b" }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Text inside removed tags is preserved. Common HTML entities are decoded.
+
+Examples (JSON strings show exact whitespace):
+
+Remove every tag:
+  Data: {"html":"<p>Hello <b>world</b>!</p>"}
+  Template: "{{ html | strip_tags }}"
+  Output: "Hello world!"
+
+Keep selected tags:
+  Data: {"html":"<p>Hello <b>world</b>!</p>"}
+  Template: "{{ html | strip_tags:\"b\" }}"
+  Output: "Hello <b>world</b>!"
+
+Reference: knap help filters | knap help syntax
+=== sum ===
+sum
+
+Add numeric array values or numeric object properties.
+
+Syntax:
+  {{ value | sum }}
+  {{ value | sum:"amount" }}
+  {{ value | sum:"details.amount" }}
+
+Parameters:
+  Without a parameter, numeric array items are added.
+  Pass a quoted property path to add values from object items. Dotted paths select nested own properties.
+
+Parameter example: {{ value | sum:"amount" }}
+
+Notes:
+  Finite numbers and nonblank numeric strings are included. Missing properties, blank strings, nonnumeric values, and infinities are ignored.
+  An empty array returns `0`.
+
+Examples (JSON strings show exact whitespace):
+
+Numeric values:
+  Data: {"values":[10,"2.5","","none"]}
+  Template: "{{ values | sum }}"
+  Output: "12.5"
+
+Object property:
+  Data: {"items":[{"amount":10},{"amount":"2.5"},{}]}
+  Template: "{{ items | sum:\"amount\" }}"
+  Output: "12.5"
+
+Reference: knap help filters | knap help syntax
+=== table ===
+table
+
+Convert arrays or objects to a compact Markdown table.
+
+Syntax:
+  {{ value | table }}
+  {{ value | table:("Column 1", "Column 2") }}
+
+Parameters:
+  Optional parameters set column headers.
+
+Notes:
+  Arrays of objects use object keys as headers. Arrays of arrays use each nested array as a row. Simple arrays use a single `Value` column unless custom headers are supplied.
+
+Examples (JSON strings show exact whitespace):
+
+Array of objects:
+  Data: {"people":[{"name":"Ada","role":"Engineer"},{"name":"Lin","role":"Designer"}]}
+  Template: "{{ people | table }}"
+  Output: "| name | role |\n| - | - |\n| Ada | Engineer |\n| Lin | Designer |"
+
+Simple array:
+  Data: {"names":["Ada","Lin"]}
+  Template: "{{ names | table }}"
+  Output: "| Value |\n| - |\n| Ada |\n| Lin |"
+
+Array of arrays:
+  Data: {"rows":[["Ada","Engineer"],["Lin","Designer"]]}
+  Template: "{{ rows | table:(\"Name\", \"Role\") }}"
+  Output: "| Name | Role |\n| - | - |\n| Ada | Engineer |\n| Lin | Designer |"
+
+Custom columns:
+  Data: {"values":["Ada","Writer","Lin","Editor"]}
+  Template: "{{ values | table:(\"Name\", \"Role\") }}"
+  Output: "| Name | Role |\n| - | - |\n| Ada | Writer |\n| Lin | Editor |"
+
+Reference: knap help filters | knap help syntax
+=== table_pretty ===
+table_pretty
+
+Convert arrays or objects to a padded Markdown table.
+
+Syntax:
+  {{ value | table_pretty }}
+  {{ value | table_pretty:("Column 1", "Column 2") }}
+
+Parameters:
+  Optional parameters set column headers.
+
+Notes:
+  Columns are padded to equal widths and the separator row expands to match.
+  Data shapes and custom headers behave the same as `table`.
+
+Examples (JSON strings show exact whitespace):
+
+Object array:
+  Data: {"people":[{"name":"Ada","role":"Engineer"},{"name":"Lin","role":"Designer"}]}
+  Template: "{{ people | table_pretty }}"
+  Output: "| name | role     |\n| ---- | -------- |\n| Ada  | Engineer |\n| Lin  | Designer |"
+
+Custom columns:
+  Data: {"values":["Ada","Writer","Lin","Editor"]}
+  Template: "{{ values | table_pretty:(\"Name\", \"Role\") }}"
+  Output: "| Name | Role   |\n| ---- | ------ |\n| Ada  | Writer |\n| Lin  | Editor |"
+
+Reference: knap help filters | knap help syntax
+=== template ===
+template
+
+Render an object or each array item with a small ${property} template.
+
+Syntax:
+  {{ value | template:"${name}" }}
+
+Parameters:
+  The template parameter can reference nested object properties. Array items are separated by a blank line.
+  Use `${str}` for plain strings, including strings produced by `map`.
+
+Parameter example: {{ value | template:"${name}" }}
+
+Examples (JSON strings show exact whitespace):
+
+Object:
+  Data: {"person":{"name":"Ada","role":"Engineer"}}
+  Template: "{{ person | template:\"${name}: ${role}\" }}"
+  Output: "Ada: Engineer"
+
+Array of objects:
+  Data: {"people":[{"name":"Ada","role":"Engineer"},{"name":"Lin","role":"Designer"}]}
+  Template: "{{ people | template:\"${name}: ${role}\" }}"
+  Output: "Ada: Engineer\n\nLin: Designer"
+
+Strings:
+  Data: {"values":["rock","pop"]}
+  Template: "{{ values | template:\"- ${str}\" }}"
+  Output: "- rock\n\n- pop"
+
+Reference: knap help filters | knap help syntax
+=== title ===
+title
+
+Convert text to Title Case.
+
+Syntax:
+  {{ value | title }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"hello world"}
+  Template: "{{ title | title }}"
+  Output: "Hello World"
+
+Reference: knap help filters | knap help syntax
+=== trim ===
+trim
+
+Remove whitespace from both ends of a value.
+
+Syntax:
+  {{ value | trim }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"  hello world  "}
+  Template: "{{ title | trim }}"
+  Output: "hello world"
+
+Reference: knap help filters | knap help syntax
+=== truncate ===
+truncate
+
+Shorten text to a character limit.
+
+Syntax:
+  {{ value | truncate:100 }}
+  {{ value | truncate:(100, "...") }}
+
+Parameters:
+  The required first parameter is a non-negative character limit.
+  The suffix defaults to `…`. Pass a second parameter to replace it, or `""` to omit it.
+
+Parameter example: {{ value | truncate:(100, "…") }}
+
+Notes:
+  The suffix counts toward the character limit and is clipped when it is longer than the limit.
+  Unicode grapheme clusters such as emoji count as one character.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Default suffix:
+  Data: {"text":"A concise introduction to Knap"}
+  Template: "{{ text | truncate:10 }}"
+  Output: "A concise…"
+
+Custom suffix:
+  Data: {"text":"A concise introduction"}
+  Template: "{{ text | truncate:(12, \"...\") }}"
+  Output: "A concise..."
+
+No suffix:
+  Data: {"text":"A concise introduction"}
+  Template: "{{ text | truncate:(9, \"\") }}"
+  Output: "A concise"
+
+Reference: knap help filters | knap help syntax
+=== truncatewords ===
+truncatewords
+
+Shorten text to a word limit.
+
+Syntax:
+  {{ value | truncatewords:20 }}
+  {{ value | truncatewords:(20, "...") }}
+
+Parameters:
+  The required first parameter is a non-negative word limit.
+  The suffix defaults to `…`. Pass a second parameter to replace it, or `""` to omit it.
+
+Parameter example: {{ value | truncatewords:(20, "…") }}
+
+Notes:
+  The suffix is appended after the requested number of words.
+  Whitespace within the retained text is preserved.
+  For arrays and objects, including serialized collections from another filter, string values are formatted recursively while keys and non-string values are preserved.
+
+Examples (JSON strings show exact whitespace):
+
+Default suffix:
+  Data: {"text":"A concise introduction to Knap"}
+  Template: "{{ text | truncatewords:3 }}"
+  Output: "A concise introduction…"
+
+No suffix:
+  Data: {"text":"A concise introduction to Knap"}
+  Template: "{{ text | truncatewords:(3, \"\") }}"
+  Output: "A concise introduction"
+
+Reference: knap help filters | knap help syntax
+=== uncamel ===
+uncamel
+
+Convert camelCase or PascalCase to spaced lowercase text.
+
+Syntax:
+  {{ value | uncamel }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+camelCase:
+  Data: {"name":"camelCase"}
+  Template: "{{ name | uncamel }}"
+  Output: "camel case"
+
+PascalCase:
+  Data: {"name":"PascalCase"}
+  Template: "{{ name | uncamel }}"
+  Output: "pascal case"
+
+Initialism:
+  Data: {"name":"myHTMLParser"}
+  Template: "{{ name | uncamel }}"
+  Output: "my html parser"
+
+Reference: knap help filters | knap help syntax
+=== unescape ===
+unescape
+
+Turn escaped quotes and newlines into literal characters.
+
+Syntax:
+  {{ value | unescape }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Newline:
+  Data: {"value":"line1\\nline2"}
+  Template: "{{ value | unescape }}"
+  Output: "line1\nline2"
+
+Quotes:
+  Data: {"value":"He said \\\"hello\\\""}
+  Template: "{{ value | unescape }}"
+  Output: "He said \"hello\""
+
+Reference: knap help filters | knap help syntax
+=== unique ===
+unique
+
+Remove duplicate values from arrays or objects.
+
+Syntax:
+  {{ value | unique }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Notes:
+  Arrays of objects are compared by value. For objects, duplicate values are removed while the last matching key is retained. Strings are returned unchanged.
+
+Examples (JSON strings show exact whitespace):
+
+Primitive values:
+  Data: {"tags":["notes","ideas","notes"]}
+  Template: "{{ tags | unique }}"
+  Output: "[\"notes\",\"ideas\"]"
+
+Objects in an array:
+  Data: {"items":[{"a":1},{"b":2},{"a":1}]}
+  Template: "{{ items | unique }}"
+  Output: "[{\"a\":1},{\"b\":2}]"
+
+Duplicate object values:
+  Data: {"values":{"first":"same","second":"different","third":"same"}}
+  Template: "{{ values | unique }}"
+  Output: "{\"second\":\"different\",\"third\":\"same\"}"
+
+Reference: knap help filters | knap help syntax
+=== upper ===
+upper
+
+Convert text to uppercase.
+
+Syntax:
+  {{ value | upper }}
+
+Parameters:
+  See syntax and examples for supported usage.
+
+Examples (JSON strings show exact whitespace):
+
+Basic usage:
+  Data: {"title":"Hello world"}
+  Template: "{{ title | upper }}"
+  Output: "HELLO WORLD"
+
+Reference: knap help filters | knap help syntax
+=== where ===
+where
+
+Keep array items whose property exactly matches a value.
+
+Syntax:
+  {{ value | where:("published", true) }}
+  {{ value | where:("status", "draft") }}
+  {{ value | where:("author.name", "Ada") }}
+
+Parameters:
+  A quoted property path and comparison value are required. Dotted paths select nested own properties.
+  Strings, numbers, booleans, and `null` are compared by type and value.
+
+Parameter example: {{ value | where:("published", true) }}
+
+Notes:
+  Missing properties never match, including when the comparison value is `null`.
+  Matching items retain their types and original order.
+
+Examples (JSON strings show exact whitespace):
+
+Boolean property:
+  Data: {"posts":[{"title":"One","published":true},{"title":"Two","published":false}]}
+  Template: "{{ posts | where:(\"published\", true) | map:\"title\" | join:\", \" }}"
+  Output: "One"
+
+Typed equality:
+  Data: {"items":[{"value":1},{"value":"1"}]}
+  Template: "{{ items | where:(\"value\", \"1\") }}"
+  Output: "[{\"value\":\"1\"}]"
+
+Reference: knap help filters | knap help syntax
+=== wikilink ===
+wikilink
+
+Create wikilinks from strings, arrays, or objects.
+
+Syntax:
+  {{ value | wikilink }}
+  {{ value | wikilink:"Alias" }}
+
+Parameters:
+  The optional parameter sets an alias for string and array values.
+
+Notes:
+  Output uses Obsidian-compatible `[[target|alias]]` syntax. Wikilinks are also commonly called internal links.
+  For object values, keys are note names and values are aliases.
+
+Examples (JSON strings show exact whitespace):
+
+String with alias:
+  Data: {"page":"Project Atlas"}
+  Template: "{{ page | wikilink:\"Atlas\" }}"
+  Output: "[[Project Atlas|Atlas]]"
+
+Array data:
+  Data: {"pages":["Project Atlas","Daily Notes"]}
+  Template: "{{ pages | wikilink }}"
+  Output: "[\"[[Project Atlas]]\",\"[[Daily Notes]]\"]"
+
+Object data:
+  Data: {"pages":{"Project Atlas":"Atlas","Daily Notes":"Journal"}}
+  Template: "{{ pages | wikilink }}"
+  Output: "[\"[[Project Atlas|Atlas]]\",\"[[Daily Notes|Journal]]\"]"
+
+Reference: knap help filters | knap help syntax
+=== yaml ===
+yaml
+
+Serialize a value as YAML.
+
+Syntax:
+  {{ value | yaml }}
+  {{ value | yaml:flow }}
+
+Parameters:
+  Arrays and objects use block style with two-space nesting by default. Pass `flow` for compact inline collections.
+
+Parameter example: {{ value | yaml:flow }}
+
+Notes:
+  Accepts typed arrays and objects or serialized JSON collections, including output from filters such as `wikilink`.
+  Strings stay quoted while numbers, booleans, and null retain their types, both as standalone values and within collections. Empty arrays and objects use `[]` and `{}` in either style.
+  Filter chains preserve the type returned by the preceding filter, so formatting filters that return numeric-looking text still produce quoted strings. Use `parse_json` to decode JSON text before serialization. Multiline strings use escaped newlines.
+  Output has no trailing newline or frontmatter delimiters. Place block collections on the line below a property and use `indent:2` to indent them, or use `yaml_property` to format a complete property.
+
+Examples (JSON strings show exact whitespace):
+
+Scalar:
+  Data: {"title":"A: value #1"}
+  Template: "{{ title | yaml }}"
+  Output: "\"A: value #1\""
+
+Block list:
+  Data: {"genres":["Action","Sci-fi"]}
+  Template: "genre:\n{{ genres | yaml | indent:2 }}"
+  Output: "genre:\n  - \"Action\"\n  - \"Sci-fi\""
+
+Flow list:
+  Data: {"genres":["Action","Sci-fi"]}
+  Template: "genre: {{ genres | yaml:flow }}"
+  Output: "genre: [\"Action\",\"Sci-fi\"]"
+
+Frontmatter from an object:
+  Data: {"metadata":{"year":1999,"genre":["Action","Sci-fi"]}}
+  Template: "---\n{{ metadata | yaml }}\n---"
+  Output: "---\nyear: 1999\ngenre:\n  - \"Action\"\n  - \"Sci-fi\"\n---"
+
+Wikilink list:
+  Data: {"directors":["Lana Wachowski","Lilly Wachowski"]}
+  Template: "director:\n{{ directors | wikilink | yaml | indent:2 }}"
+  Output: "director:\n  - \"[[Lana Wachowski]]\"\n  - \"[[Lilly Wachowski]]\""
+
+Reference: knap help filters | knap help syntax
+=== yaml_property ===
+yaml_property
+
+Serialize a complete YAML property.
+
+Syntax:
+  {{ value | yaml_property:"name" }}
+
+Parameters:
+  One non-empty property name is required. Quote names that contain spaces or punctuation.
+
+Parameter example: {{ value | yaml_property:"director" }}
+
+Notes:
+  Scalars appear beside the key. Non-empty arrays and objects use block style beneath the key with two-space indentation; empty collections stay inline as `[]` or `{}`.
+  Uses the same value serialization as `yaml` and quotes keys when needed. Strings stay quoted while typed numbers, booleans, and null remain unquoted.
+  Filter chains preserve the type returned by the preceding filter, so formatting filters that return numeric-looking text still produce quoted strings.
+  Apply transformations such as `wikilink` before this filter. No separate `yaml` or `indent` filter is needed.
+  Output has no trailing newline or frontmatter delimiters.
+
+Examples (JSON strings show exact whitespace):
+
+Scalar:
+  Data: {"year":1999}
+  Template: "{{ year | yaml_property:\"year\" }}"
+  Output: "year: 1999"
+
+Wikilink list:
+  Data: {"directors":["Lana Wachowski","Lilly Wachowski"]}
+  Template: "{{ directors | wikilink | yaml_property:\"director\" }}"
+  Output: "director:\n  - \"[[Lana Wachowski]]\"\n  - \"[[Lilly Wachowski]]\""
+
+Nested object:
+  Data: {"details":{"year":1999,"genre":["Action","Sci-fi"]}}
+  Template: "{{ details | yaml_property:\"movie\" }}"
+  Output: "movie:\n  year: 1999\n  genre:\n    - \"Action\"\n    - \"Sci-fi\""
+
+Empty list:
+  Data: {"tags":[]}
+  Template: "{{ tags | yaml_property:\"tags\" }}"
+  Output: "tags: []"
+
+Reference: knap help filters | knap help syntax
