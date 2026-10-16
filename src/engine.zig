@@ -465,6 +465,92 @@ pub const Interp = struct {
         return value;
     }
 
+    /// Evaluate an arrow body against one mapped item — `x => x.a.b`,
+    /// `x => ({k: x.v})`, `x => "pre/${x}"`, `x => 42`. The arrow's own
+    /// variable resolves against the item; other roots fall through to
+    /// normal scope resolution.
+    pub fn evalArrow(self: *Interp, arrow: parse.Arrow, item: *const std.json.Value) Error!*const std.json.Value {
+        return self.evalArrowBody(arrow.body, arrow.var_name, item);
+    }
+
+    fn evalArrowBody(self: *Interp, body: parse.ArrowBody, var_name: []const u8, item: *const std.json.Value) Error!*const std.json.Value {
+        return switch (body) {
+            .path => |p| self.resolveArrowPath(p, var_name, item),
+            .literal => |lit| self.make(literalValue(lit)),
+            .object => |fields| self.evalArrowObject(fields, var_name, item),
+            .interp => |parts| self.evalArrowInterp(parts, var_name, item),
+        };
+    }
+
+    fn evalArrowObject(self: *Interp, fields: []const parse.ArrowField, var_name: []const u8, item: *const std.json.Value) Error!*const std.json.Value {
+        const v = try self.alloc.create(std.json.Value);
+        v.* = .{ .object = .empty };
+        for (fields) |f| {
+            const field_v = switch (f.value) {
+                .path => |p| try self.resolveArrowPath(p, var_name, item),
+                .literal => |lit| try self.make(literalValue(lit)),
+                .interp => |parts| try self.evalArrowInterp(parts, var_name, item),
+            };
+            try v.object.put(self.alloc, f.name, field_v.*);
+        }
+        return v;
+    }
+
+    fn evalArrowInterp(self: *Interp, parts: []const parse.InterpPart, var_name: []const u8, item: *const std.json.Value) Error!*const std.json.Value {
+        var out = std.ArrayList(u8).empty;
+        for (parts) |part| {
+            switch (part) {
+                .text => |t| try out.appendSlice(self.alloc, t),
+                .path => |p| {
+                    const v = try self.resolveArrowPath(p, var_name, item);
+                    switch (v.*) {
+                        .null => {},
+                        else => try out.appendSlice(self.alloc, try filters.jsToString(self.alloc, v)),
+                    }
+                },
+            }
+        }
+        return self.make(.{ .string = out.items });
+    }
+
+    /// A path rooted at the arrow variable walks the item; anything else
+    /// resolves through the normal scope chain.
+    fn resolveArrowPath(self: *Interp, path: parse.Path, var_name: []const u8, item: *const std.json.Value) Error!*const std.json.Value {
+        if (!std.mem.eql(u8, path.root, var_name)) return self.resolvePath(path);
+        var value = item;
+        for (path.steps) |step| {
+            value = switch (step) {
+                .key => |k| switch (value.*) {
+                    .object => |obj| obj.getPtr(k) orelse return self.nullValue(),
+                    else => return self.nullValue(),
+                },
+                .index => |idx| switch (value.*) {
+                    .array => |arr| if (idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue(),
+                    else => return self.nullValue(),
+                },
+                .expr => |pipe| blk: {
+                    const key = try self.evalPipeline(pipe.*);
+                    break :blk switch (key.*) {
+                        .string => |k| switch (value.*) {
+                            .object => |obj| obj.getPtr(k) orelse return self.nullValue(),
+                            .array => |arr| inner: {
+                                const idx = std.fmt.parseInt(u64, k, 10) catch return self.nullValue();
+                                break :inner if (idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue();
+                            },
+                            else => return self.nullValue(),
+                        },
+                        .integer => |idx| switch (value.*) {
+                            .array => |arr| if (idx >= 0 and idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue(),
+                            else => return self.nullValue(),
+                        },
+                        else => return self.nullValue(),
+                    };
+                },
+            };
+        }
+        return value;
+    }
+
     fn loopObject(self: *Interp, frame: *LoopFrame) Error!*const std.json.Value {
         // One object per frame keeps `loop == loop` identity; the
         // index-dependent fields refresh each iteration.

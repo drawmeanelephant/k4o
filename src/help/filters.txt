@@ -1,0 +1,87 @@
+CLI filters
+
+  blockquote         Prefix every line as a Markdown blockquote.
+  bold               Wrap text in Markdown bold markers.
+  calc               Apply a simple arithmetic operation to a number.
+  callout            Create a callout.
+  camel              Convert text to camelCase.
+  capitalize         Uppercase the first character and lowercase the rest.
+  code               Format inline code or a fenced code block.
+  code_block         Create a fenced code block.
+  comment            Wrap text in comment markers.
+  compact            Remove null and empty-string values from a collection.
+  date               Format a date.
+  date_modify        Add or subtract a date interval.
+  decode_uri         Decode percent-encoded URI text.
+  duration           Format seconds or an ISO 8601 duration.
+  embed              Create an embedded wiki reference.
+  encode_uri         Encode text for use as a URI component.
+  escape_md          Escape Markdown punctuation so text renders literally.
+  first              Return the first item in an array.
+  footnote           Convert an array or object to Markdown footnote definitions.
+  fragment_link      Add a source URL with a text-fragment anchor to highlights.
+  h1                 Create a level-one heading.
+  h2                 Create a level-two heading.
+  h3                 Create a level-three heading.
+  h4                 Create a level-four heading.
+  h5                 Create a level-five heading.
+  h6                 Create a level-six heading.
+  hard_break         Turn single newlines into Markdown hard line breaks.
+  highlight          Wrap text in highlight markers.
+  hr                 Place a horizontal rule around text.
+  image              Create Markdown image syntax from a URL, array, or object.
+  indent             Indent each non-empty line with spaces.
+  italic             Wrap text in Markdown italic markers.
+  join               Join array items with an optional separator.
+  kebab              Convert text to kebab-case.
+  last               Return the last item in an array.
+  length             Count string characters, array items, or object keys.
+  link               Create Markdown links from a URL, array, or object.
+  list               Convert a value or array to a Markdown list.
+  lower              Convert text to lowercase.
+  map                Select a property from each array item or map items with an expression.
+  math               Format inline math or a math block.
+  math_block         Create a block math expression.
+  merge              Append one or more values to an array.
+  nth                Select positions from an array with nth-pattern syntax.
+  number_format      Add thousands separators and optional decimal places.
+  object             Convert an object to keys, values, or key-value pairs.
+  parse_json         Parse JSON text into a typed template value.
+  pascal             Convert text to PascalCase.
+  remove_attr        Remove selected attributes from HTML tags.
+  remove_tags        Remove selected HTML tags but keep their content.
+  replace            Replace one or more strings or regular expressions.
+  replace_tags       Rename selected HTML tags while preserving content.
+  reverse            Reverse a string, array, or object entry order.
+  round              Round a number to an optional number of decimal places.
+  safe_name          Remove characters that are unsafe in file names.
+  slice              Extract part of a string or array.
+  snake              Convert text to snake_case.
+  sort               Sort an array by value or object property.
+  split              Split a string into a JSON array.
+  strike             Wrap text in Markdown strikethrough markers.
+  strip_attr         Remove every HTML attribute except an optional allowlist.
+  strip_md           Remove Markdown formatting while keeping readable text.
+  strip_tags         Remove all HTML tags except an optional allowlist.
+  stripmd            Alias for strip_md. Remove Markdown formatting while keeping readable text.
+  sum                Add numeric array values or numeric object properties.
+  table              Convert arrays or objects to a compact Markdown table.
+  table_pretty       Convert arrays or objects to a padded Markdown table.
+  template           Render an object or each array item with a small ${property} template.
+  title              Convert text to Title Case.
+  trim               Remove whitespace from both ends of a value.
+  truncate           Shorten text to a character limit.
+  truncatewords      Shorten text to a word limit.
+  uncamel            Convert camelCase or PascalCase to spaced lowercase text.
+  unescape           Turn escaped quotes and newlines into literal characters.
+  unique             Remove duplicate values from arrays or objects.
+  upper              Convert text to uppercase.
+  where              Keep array items whose property exactly matches a value.
+  wikilink           Create wikilinks from strings, arrays, or objects.
+  yaml               Serialize a value as YAML.
+  yaml_property      Serialize a complete YAML property.
+
+Use knap help filter <name> for syntax, parameters, and examples.
+DOM-dependent html_to_json and remove_html require the library API and are
+not available in the CLI. Host integrations such as markdown conversion,
+browser selectors, and prompts are not supplied by the CLI.

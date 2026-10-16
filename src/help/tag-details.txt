@@ -1,0 +1,123 @@
+=== if ===
+if
+
+Render content when a condition is true.
+
+Syntax:
+  {% if condition %}...{% elseif other %}...{% else %}...{% endif %}
+
+`elseif` and `else` branches are optional. Conditions can nest.
+Conditions treat `false`, `null`, `undefined`, an empty string, `0`, and an empty array as false. Other values are treated as true.
+Use comparisons (`==`, `!=`, `>`, `<`, `>=`, `<=`, `contains`), `and` / `&&`, `or` / `||`, and `not` / `!`. Parentheses group expressions.
+
+Example (JSON strings show exact whitespace):
+Choose a branch:
+  Data: {"published":false,"draft":true}
+  Template: "{% if published %}Published{% elseif draft %}Draft{% else %}Archived{% endif %}"
+  Output: "Draft"
+
+Reference: knap help tags | knap help syntax
+=== elseif ===
+elseif
+
+Try another condition after an if or elseif branch.
+
+Syntax:
+  {% if condition %}...{% elseif other %}...{% endif %}
+
+Use inside an `if` block, before any `else` branch. Multiple `elseif` branches are allowed.
+
+Example (JSON strings show exact whitespace):
+Choose a branch:
+  Data: {"published":false,"draft":true}
+  Template: "{% if published %}Published{% elseif draft %}Draft{% else %}Archived{% endif %}"
+  Output: "Draft"
+
+Reference: knap help tags | knap help syntax
+=== else ===
+else
+
+Render the fallback branch of an if block.
+
+Syntax:
+  {% if condition %}...{% else %}...{% endif %}
+
+Use once, after all conditional branches. Knap does not support `else` branches in `for` blocks.
+
+Example (JSON strings show exact whitespace):
+Choose a branch:
+  Data: {"published":false,"draft":true}
+  Template: "{% if published %}Published{% elseif draft %}Draft{% else %}Archived{% endif %}"
+  Output: "Draft"
+
+Reference: knap help tags | knap help syntax
+=== endif ===
+endif
+
+Close an if block.
+
+Syntax:
+  {% if condition %}...{% endif %}
+
+Each `if` block requires a matching `endif`, including nested blocks.
+
+Example (JSON strings show exact whitespace):
+Choose a branch:
+  Data: {"published":false,"draft":true}
+  Template: "{% if published %}Published{% elseif draft %}Draft{% else %}Archived{% endif %}"
+  Output: "Draft"
+
+Reference: knap help tags | knap help syntax
+=== for ===
+for
+
+Repeat content for each item in an array.
+
+Syntax:
+  {% for item in items %}...{% endfor %}
+
+Use item properties inside the block, for example `{{ item.name }}`.
+Loop values: `loop.index` (1-based), `loop.index0` (0-based), `loop.first`, `loop.last`, `loop.length`, and `item_index` (0-based, named after the iterator).
+Iterations are separated by a line break. Extra blank lines before `endfor` are preserved.
+
+Example (JSON strings show exact whitespace):
+List tags:
+  Data: {"tags":["science fiction","novel"]}
+  Template: "{% for tag in tags %}- #{{ tag | kebab }}{% endfor %}"
+  Output: "- #science-fiction\n- #novel"
+
+Reference: knap help tags | knap help syntax
+=== endfor ===
+endfor
+
+Close a for loop.
+
+Syntax:
+  {% for item in items %}...{% endfor %}
+
+Each `for` block requires a matching `endfor`, including nested loops.
+
+Example (JSON strings show exact whitespace):
+List tags:
+  Data: {"tags":["science fiction","novel"]}
+  Template: "{% for tag in tags %}- #{{ tag | kebab }}{% endfor %}"
+  Output: "- #science-fiction\n- #novel"
+
+Reference: knap help tags | knap help syntax
+=== set ===
+set
+
+Save a value to use later in the template.
+
+Syntax:
+  {% set name = expression %}
+
+Assign a literal, expression, or filtered value. Assignments are evaluated in order and produce no output.
+
+Example (JSON strings show exact whitespace):
+Create a slug:
+  Data: {"title":"Hello World"}
+  Template: "{% set slug = title | kebab %}File: {{ slug }}.md"
+  Output: "File: hello-world.md"
+
+Reference: knap help tags | knap help syntax

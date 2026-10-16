@@ -1,0 +1,11 @@
+Logic tags
+
+  if         Render content when a condition is true.
+  elseif     Try another condition after an if or elseif branch.
+  else       Render the fallback branch of an if block.
+  endif      Close an if block.
+  for        Repeat content for each item in an array.
+  endfor     Close a for loop.
+  set        Save a value to use later in the template.
+
+Tags use {% ... %}. Use knap help tag <name> for syntax and examples.

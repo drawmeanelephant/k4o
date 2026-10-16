@@ -109,7 +109,7 @@ pub fn apply(
         return filters.mapStrings(it, input, true, {}, escapeMd);
     }
     if (std.mem.eql(u8, name, "fragment_link")) {
-        return filters.failAt(it, call.offset, "filter 'fragment_link' is not implemented yet", .{});
+        return emitFragmentLink(it, call, input);
     }
     return null;
 }
@@ -291,6 +291,56 @@ fn emitLink(it: *Interp, call: parse.FilterCall, input: *const Value, arg: ?[]co
             return it.make(.{ .string = out.items });
         },
     }
+}
+
+/// `fragment_link`: appends ` [label](url#:~:text=ENCODE(item))` to
+/// every element of a real array; non-arrays (and single primitive
+/// arrays, which unwrap before the filter runs) pass through. The
+/// fragment encodes with encodeURIComponent's set; `label:url` picks a
+/// custom label where a colon before `//` is the URL scheme, not a
+/// label split.
+fn emitFragmentLink(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*const Value {
+    const v = try filters.normalizeInput(it, input);
+    if (v.* != .array) return input;
+    const arg = (try filters.paramText(it, call, 0)) orelse
+        return filters.badArg(it, call, "filter 'fragment_link' expects a source URL", .{});
+    var label: []const u8 = "link";
+    var url = arg;
+    if (std.mem.indexOfScalar(u8, arg, ':')) |colon| {
+        const rest = arg[colon + 1 ..];
+        if (!std.mem.startsWith(u8, rest, "//")) {
+            label = arg[0..colon];
+            url = rest;
+        }
+    }
+    var items = std.json.Array.init(it.alloc);
+    for (v.array.items) |*item| {
+        const text = try filters.jsToString(it.alloc, item);
+        const frag = try encodeUriComponent(it.alloc, text);
+        const s = try std.fmt.allocPrint(it.alloc, "{s} [{s}]({s}#:~:text={s})", .{ text, label, url, frag });
+        try items.append(.{ .string = s });
+    }
+    return it.make(.{ .array = items });
+}
+
+/// encodeURIComponent: everything outside `A-Z a-z 0-9 - _ . ! ~ * ' ( )`
+/// becomes `%XX`.
+fn encodeUriComponent(alloc: std.mem.Allocator, s: []const u8) Error![]const u8 {
+    var out = std.ArrayList(u8).empty;
+    const hex = "0123456789ABCDEF";
+    for (s) |c| {
+        const keep = std.ascii.isAlphanumeric(c) or
+            c == '-' or c == '_' or c == '.' or c == '!' or c == '~' or
+            c == '*' or c == 0x27 or c == '(' or c == ')';
+        if (keep) {
+            try out.append(alloc, c);
+        } else {
+            try out.append(alloc, '%');
+            try out.append(alloc, hex[c >> 4]);
+            try out.append(alloc, hex[c & 0xF]);
+        }
+    }
+    return out.toOwnedSlice(alloc);
 }
 
 /// `[text](url)` — an empty URL emits nothing. A dangerous scheme

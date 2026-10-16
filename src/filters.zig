@@ -157,6 +157,7 @@ pub fn paramText(it: *Interp, call: parse.FilterCall, i: usize) Error!?[]const u
 pub fn jsToString(alloc: std.mem.Allocator, v: *const Value) Error![]const u8 {
     switch (v.*) {
         .object => return "[object Object]",
+        .null => return "null",
         .array => |arr| {
             var out = std.ArrayList(u8).empty;
             for (arr.items, 0..) |*item, i| {
