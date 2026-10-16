@@ -235,7 +235,7 @@ pub const Interp = struct {
     fn evalChain(self: *Interp, chain: parse.Chain, offset: usize) Error!*const std.json.Value {
         var depth: u32 = 0;
         for (chain.terms) |term| {
-            depth = @max(depth, condDepth(term));
+            depth = @max(depth, condDepth(term.cond));
         }
         if (depth > max_eval_depth) {
             return diag.fail(
@@ -250,19 +250,22 @@ pub const Interp = struct {
         }
         var last: ?*const std.json.Value = null;
         for (chain.terms) |term| {
-            switch (term) {
+            var v: *const std.json.Value = undefined;
+            switch (term.cond) {
                 .operand => |e| {
-                    const v = try self.evalExpr(e);
-                    if (truthy(v.*)) return v;
-                    last = v;
+                    v = try self.evalExpr(e);
                 },
                 else => {
-                    const b = try self.evalCond(term, offset);
-                    const v = try self.boolValue(b);
-                    if (b) return v;
-                    last = v;
+                    v = try self.boolValue(try self.evalCond(term.cond, offset));
                 },
             }
+            // Term-level `|` filters run on the result — `a == b |
+            // upper` filters the comparison's bool.
+            for (term.filters) |call| {
+                v = try filters.apply(self, call, v);
+            }
+            if (truthy(v.*)) return v;
+            last = v;
         }
         // No term was truthy — the chain falls back to its last term.
         return last orelse self.nullValue();

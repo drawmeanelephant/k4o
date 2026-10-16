@@ -137,7 +137,15 @@ pub const SetNode = struct {
 /// wins and contributes its value (a bool for comparisons, the operand
 /// value otherwise).
 pub const Chain = struct {
-    terms: []const Cond,
+    terms: []const CondTerm,
+};
+
+/// One chain term: a condition plus any trailing `| filters` that apply
+/// to its RESULT (`a == b | upper` filters `(a == b)` — `|` binds at the
+/// term level, looser than every boolean op but tighter than `??`).
+pub const CondTerm = struct {
+    cond: Cond,
+    filters: []const FilterCall,
 };
 
 pub const Branch = struct {
@@ -1228,8 +1236,16 @@ const Scanner = struct {
             const start = s.pos;
             while (s.pos < s.text.len and isNameChar(s.text[s.pos])) s.pos += 1;
             if (s.pos == start) break;
+            const tok = s.text[start..s.pos];
+            // Operator/keyword words are never part of a spaced name —
+            // `a and b` is a condition, `a in b` errors; `andy`/`into`
+            // still join because the check is whole-token.
+            if (isNameKeyword(tok)) {
+                s.pos = start;
+                break;
+            }
             if (buf.items.len > 0) try buf.append(s.p.alloc, ' ');
-            try buf.appendSlice(s.p.alloc, s.text[start..s.pos]);
+            try buf.appendSlice(s.p.alloc, tok);
             const save = s.pos;
             s.skipWs();
             if (s.pos < s.text.len and isNameChar(s.text[s.pos])) continue;
@@ -1243,11 +1259,45 @@ const Scanner = struct {
     /// `cond (?? cond)*` — the chain separator sits looser than every
     /// boolean operator, so `a ?? b == c` is `a ?? (b == c)`.
     fn parseChainExpr(s: *Scanner, spaced_names: bool) Error!Chain {
-        var terms = std.ArrayList(Cond).empty;
+        var terms = std.ArrayList(CondTerm).empty;
         errdefer terms.deinit(s.p.alloc);
         while (true) {
             const cond = try s.parseOr(0, 0, spaced_names);
-            try terms.append(s.p.alloc, cond);
+            // `|` at this level applies to the term's result — `(a == b) |
+            // upper`, `a and b | upper`, `x | bold` all filter the term
+            // value. `||` is the boolean operator, not a filter.
+            var tail = std.ArrayList(FilterCall).empty;
+            errdefer tail.deinit(s.p.alloc);
+            while (true) {
+                const save = s.pos;
+                s.skipWs();
+                if (s.eof() or s.peek() != '|' or
+                    (s.pos + 1 < s.text.len and s.text[s.pos + 1] == '|'))
+                {
+                    s.pos = save;
+                    break;
+                }
+                s.pos += 1;
+                s.skipWs();
+                const fstart = s.pos;
+                const name = s.word() orelse return s.err("expected a filter name after '|'", .{});
+                var params = std.ArrayList(Param).empty;
+                errdefer params.deinit(s.p.alloc);
+                s.skipWs();
+                if (!s.eof() and s.peek() == ':') {
+                    s.pos += 1;
+                    try s.parseParams(&params);
+                }
+                try tail.append(s.p.alloc, .{
+                    .name = name,
+                    .params = try params.toOwnedSlice(s.p.alloc),
+                    .offset = s.base + fstart,
+                });
+            }
+            try terms.append(s.p.alloc, .{
+                .cond = cond,
+                .filters = try tail.toOwnedSlice(s.p.alloc),
+            });
             s.skipWs();
             if (s.matchOp("??")) {
                 if (s.eof()) return s.err("expected a value", .{});
@@ -1361,12 +1411,14 @@ const Scanner = struct {
         return .{ .operand = lhs };
     }
 
-    /// One pipeline as a single-term Expr — `??` is the chain-level
-    /// combinator, so operands never hold multi-term chains.
+    /// One filter-free pipeline as a single-term Expr — `|` always
+    /// binds at the chain-term level, never inside a cond operand: `x |
+    /// bold` is operand `x` + term filter `bold`, and `x | bold == y` is
+    /// "unexpected text", matching the oracle's parse error.
     fn parseOperandExpr(s: *Scanner, spaced_names: bool) Error!Expr {
-        const pipe = try s.parsePipelineInner(spaced_names, s.abs());
+        const value = try s.parsePrimary(spaced_names);
         const terms = try s.p.alloc.alloc(Pipeline, 1);
-        terms[0] = pipe;
+        terms[0] = .{ .value = value, .filters = &.{}, .offset = s.abs() };
         return .{ .terms = terms };
     }
 };
@@ -1398,6 +1450,21 @@ fn isWs(c: u8) bool {
 
 fn isNameStart(c: u8) bool {
     return std.ascii.isAlphabetic(c) or c == '_';
+}
+
+/// Words that end a spaced-name run — boolean operators, literals and
+/// the tag keywords. Absorbing them would shadow `a and b`/`a contains
+/// b`/`a in b` and `{{ a and b }}` would look up a variable literally
+/// named "a and b", which the oracle does not do.
+fn isNameKeyword(tok: []const u8) bool {
+    const keywords = [_][]const u8{
+        "and", "or", "not", "contains", "in", "true", "false", "null",
+        "set", "if", "elseif", "else", "endif", "for", "endfor",
+    };
+    for (keywords) |kw| {
+        if (std.mem.eql(u8, tok, kw)) return true;
+    }
+    return false;
 }
 
 fn isNameChar(c: u8) bool {

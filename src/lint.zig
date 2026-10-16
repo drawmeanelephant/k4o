@@ -435,7 +435,10 @@ fn walkChain(
     chain: parse.Chain,
     findings: *std.ArrayList(Finding),
 ) Error!void {
-    for (chain.terms) |cond| try walkCond(alloc, template, cond, findings);
+    for (chain.terms) |term| {
+        try walkCond(alloc, template, term.cond, findings);
+        for (term.filters) |call| try walkFilter(alloc, template, call, findings);
+    }
 }
 
 fn walkCond(
@@ -477,7 +480,18 @@ fn walkPipeline(
     pl: parse.Pipeline,
     findings: *std.ArrayList(Finding),
 ) Error!void {
-    for (pl.filters) |call| {
+    for (pl.filters) |call| try walkFilter(alloc, template, call, findings);
+}
+
+/// Registry checks for one filter call — unknown-name and blocked-name
+/// findings (tail filters on `??`/`==` results walk through here too).
+fn walkFilter(
+    alloc: std.mem.Allocator,
+    template: []const u8,
+    call: parse.FilterCall,
+    findings: *std.ArrayList(Finding),
+) Error!void {
+    {
         if (!filters.isRegistered(call.name)) {
             const pos = diag.positionOf(template, call.offset);
             try findings.append(alloc, .{
@@ -490,7 +504,7 @@ fn walkPipeline(
                 .why = "filter names come from the knap registry — see `k4o init` for the full list or `knap help filters`",
                 .example = "{{ text | bold }}",
             });
-            continue;
+            return;
         }
         for (filters.blocked_names) |b| {
             if (std.mem.eql(u8, call.name, b)) {
