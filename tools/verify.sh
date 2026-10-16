@@ -7,7 +7,7 @@
 #   1. zig build                                          (clean build)
 #   2. zig build test                                     (expects success)
 #   3. zig build test -Dengine-mode=passthrough           (expects failure: goldbrick engine)
-#   4. zig build test -Dengine-mode=markdown              (expects failure: wrong default dialect)
+#   4. zig build test -Dengine-mode=noeval                (expects failure: tags never evaluate)
 #   5. zig build test -Doptimize=ReleaseSafe              (expects success)
 #   6. CLI smoke: the three examples byte-compare, plus error paths
 #      (non-zero exit with empty stdout), --help and --version, the
@@ -237,7 +237,7 @@ check_zero "--max-output accepts a suffixed size" "$VERIFY_DIR/20-max-suffix.log
   bash -c "'$BIN' render '$REPO/examples/heading.knap' --data='$REPO/examples/heading.json' --max-output=1m | cmp -s - '$REPO/examples/heading.markdown'"
 
 check_zero "CLI renders inline template with -t" "$VERIFY_DIR/34-inline.log" \
-  bash -c "test \$('$BIN' render -t 'hi {{name}}' --data-json '{\"name\":\"N\"}') = 'hi N'"
+  bash -c "test \"\$('$BIN' render -t 'hi {{name}}' --data-json '{\"name\":\"N\"}')\" = 'hi N'"
 check_zero "CLI reads the template from stdin" "$VERIFY_DIR/35-stdin-tpl.log" \
   bash -c "printf '{{x}}!' | '$BIN' render --data-json '{\"x\":42}' | grep -q '42!'"
 check_zero "CLI --set overrides data" "$VERIFY_DIR/36-set.log" \
@@ -319,7 +319,7 @@ generate_table() { # -> prints the table body for this run
   set -- $(summary_counts "$VERIFY_DIR/03-passthrough.log")
   pt_p=${1:-?}; pt_f=${2:-?}; total=${3:-?}
   # shellcheck disable=SC2046
-  set -- $(summary_counts "$VERIFY_DIR/04-markdown.log")
+  set -- $(summary_counts "$VERIFY_DIR/04-noeval.log")
   md_p=${1:-?}; md_f=${2:-?}
   printf '| Mode | Result |\n'
   printf '| --- | --- |\n'
@@ -328,7 +328,7 @@ generate_table() { # -> prints the table body for this run
   # shellcheck disable=SC2016
   printf '| `passthrough` | %s passed, %s failed |\n' "$pt_p" "$pt_f"
   # shellcheck disable=SC2016
-  printf '| `markdown` | %s passed, %s failed |\n' "$md_p" "$md_f"
+  printf '| `noeval` | %s passed, %s failed |\n' "$md_p" "$md_f"
 }
 
 sync_readme() { # honour $MODE: check | update

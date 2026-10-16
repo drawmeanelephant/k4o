@@ -2,22 +2,24 @@
 
 [![CI](https://github.com/drawmeanelephant/k4o/actions/workflows/ci.yml/badge.svg)](https://github.com/drawmeanelephant/k4o/actions/workflows/ci.yml)
 
-A Knap template engine that emits Textile (default), CommonMark 0.31.2, or
-CommonMark with opt-in GFM pipe tables.
+A Knap template engine in Zig — byte-compatible with the knap **0.6.0** CLI.
 
 The name is a nod: *Knap for Oliver* — Oliver being the sibling project that
-parses Textile and CommonMark. Short name, plain job.
+parses CommonMark. Short name, plain job.
 
-Knap (Obsidian's template language) turns data into Markdown. k4o renders
-its documented template subset to Textile, CommonMark, or GFM tables, selected
-at runtime.
-The sibling [Oliver](https://github.com/drawmeanelephant/oliver) parses
-the Textile and strict CommonMark outputs. The production binary is Zig,
-stdlib only, with no Node or network dependency. Official knap is installed
-only for differential tests.
+Knap (Obsidian's template language) turns data into Markdown. k4o implements
+the full 0.6.0 language — every logic tag, `{% set %}`, the `??` fallback,
+bracket key expressions, the multi-parameter filter grammar, and the complete
+CLI filter registry — and emits the same bytes as the official CLI, which the
+differential suite verifies case by case against the black-box oracle.
+The sibling [Oliver](https://github.com/drawmeanelephant/oliver) parses the
+output downstream, and [dogbed](https://github.com/drawmeanelephant/dogbed)
+embeds this library. The production binary is Zig, stdlib only, with no Node
+or network dependency. Official knap is installed only for differential
+tests.
 
 ```text
-template.knap + data.json ──> k4o ──> Textile or CommonMark ──> Oliver ──> HTML
+template.knap + data.json ──> k4o ──> CommonMark ──> Oliver ──> HTML
 ```
 
 ## Build, run, test
@@ -34,171 +36,185 @@ python3 tools/differential/run.py --oliver /path/to/oliver
 
 ```sh
 zig-out/bin/k4o render template.knap --data data.json
-zig-out/bin/k4o render template.knap --data=data.json
-zig-out/bin/k4o render template.knap --data=data.json --format markdown
-zig-out/bin/k4o render template.knap --data=data.json --format gfm
+zig-out/bin/k4o render template.knap --data=data.json --format oliver
+zig-out/bin/k4o render -t 'hi {{ name }}' --data-json '{"name":"Ada"}'
+zig-out/bin/k4o render template.knap --data data.json --set draft=true -o out.md
+zig-out/bin/k4o batch template.knap --data rows.csv --output-dir out --filename '{{ title | safe_name }}.md'
+zig-out/bin/k4o validate template.knap
 zig-out/bin/k4o lint template.knap
 zig-out/bin/k4o lint one.knap two.knap
+zig-out/bin/k4o help filters
+zig-out/bin/k4o help filter table
 zig-out/bin/k4o init
 zig-out/bin/k4o --help
 zig-out/bin/k4o --version
 ```
 
-- `render` writes Textile by default, or CommonMark with `--format markdown`
-  (also `--format=markdown`). `--format gfm` (or `--format=gfm`) changes only
-  table rendering. `--format textile` selects the default explicitly.
-  No trailing newline is added: the output bytes are exactly the rendered template.
-- `--data` is optional; without it the variables default to `{}`. Both
-  `--data FILE` and `--data=FILE` are accepted (and `-d` / `-d=FILE`); a bare
-  second positional is an error that suggests `--data`.
+- `render` writes CommonMark by default; `--format oliver` selects the
+  Oliver-targeted variant. No trailing newline is added: the output bytes
+  are exactly the rendered template.
+- The template comes from a file, `-` or piped stdin, or `-t`/`--template`
+  inline text. Data comes from `-d`/`--data FILE` (or `-` for stdin),
+  `--data-json '<json>'`, and repeatable `--set key=value` overrides (string
+  values, merged last). Only one input may read stdin. Without data the
+  variables default to `{}`.
+- `-o`/`--output FILE` writes the buffered render to a file (parent
+  directories are created; `-` means stdout, the default).
 - `--max-output` (or `-m`) caps rendered output; see
   [Output size](#output-size). Defaults to 256 MiB; `0` means no cap.
-- Exit codes: `0` on success, `1` on any error. The message goes to stderr and
-  stdout stays empty — rendering is buffered, so partially rendered output is
-  never emitted.
+- Exit codes: `0` on success, `1` on any error. The message goes to stderr
+  and stdout stays empty — rendering is buffered, so partially rendered
+  output is never emitted.
 
-### Output format contract
+### Output formats
 
-- `markdown` is strict **CommonMark 0.31.2**. Tables remain HTML blocks, and
-  its output bytes are unchanged by the opt-in GFM format.
-- `gfm` is **CommonMark + GFM pipe tables**, for Obsidian consumers. Every
-  non-table construct, including escaping and loop whitespace, emits the same
-  bytes as `markdown`. No strikethrough, task-list or autolink extensions are
-  added.
-- The no-argument `table` filter carries no alignment metadata. The GFM table
-  layout matches the knap **0.6.0** black-box oracle: an empty header, plain `-`
-  delimiters with no alignment markers, then every input row as a body row.
-  Single hyphens are valid GFM delimiters. This deliberately follows the
-  observed oracle bytes rather than promoting the first data row to a header
-  or using `---` delimiters.
-- GFM tables are knowingly unfriendly to **Oliver**: its strict CommonMark
-  parser reads pipe tables as paragraphs, not tables. That is the opt-in
-  tradeoff, not a bug; use `markdown` when feeding tables to Oliver.
+- `markdown` is the default and the knap-faithful mode: on the implemented
+  surface the bytes are identical to the knap 0.6.0 CLI, and the
+  differential suite asserts that on every corpus case and fixture. That
+  includes knap's own idioms — pipe tables, `==highlight==`, `$math$` —
+  not a curated CommonMark subset.
+- `oliver` emits identical bytes everywhere except the three constructs
+  CommonMark cannot carry: `highlight` becomes `<mark>`, `math` and
+  `math_block` become `<span class="math">`, and `comment` becomes
+  `<!-- -->`. Everything else stays Markdown, so the
+  output assumes the matching Oliver `ParseOptions` for what it produces:
+  `callouts`, `wikilinks`, `footnotes`, `strikethrough`, `task_lists`,
+  `frontmatter`.
+- The legacy Textile/GFM subset surface was removed for the fidelity work;
+  release **v0.1.0** preserves it.
 
-## Template subset
+## The knap language
 
-The documented subset, derived clean-room from Knap's user-facing
-documentation (see the clean-room record below):
+The full knap 0.6.0 language, verified against the black-box oracle (see
+the [clean-room record](#clean-room-record)):
 
 | Construct | Syntax | Notes |
 | --- | --- | --- |
-| Interpolation | `{{ title }}` | Whitespace optional (`{{title}}`). A value resolving to an object or array renders as compact JSON — see [Structured values](#structured-values). |
-| Paths | `{{ author.name }}`, `{{ authors[0].name }}`, `{{ metadata["article:section"] }}` | Dotted properties and bracket access with a number or a quoted key. Names may contain spaces in interpolation (`{{ First name }}`). |
-| Filters | `{{ value \| filter }}`, `{{ value \| filter:arg }}` | Chains run left to right: `{{ name \| italic \| h2 }}`. At most one argument; a bare word resolves against the data root, a quoted or numeric argument is a literal. See [Filter arguments](#filter-arguments). |
-| Literals | `{{ "text" }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}` | Usable as values and as condition operands. Inside a quoted literal, `\n`, `\t` and `\r` produce the control characters; `\"`, `\'` and `\\` produce the quote or backslash; any other `\x` drops the backslash (`\q` is `q`, `\x41` is `x41`), matching knap 0.6.0. The same unescaping applies to quoted filter arguments and bracket keys. |
-| Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. `==`/`!=` compare the whole value structurally, so objects and arrays work and key order does not matter; `<`/`<=`/`>`/`>=` are numbers and strings only. |
-| Truthiness | — | `false`, `null`, missing values, `""`, `0`, and `[]` are false; everything else true. |
-| Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Inside a loop `loop` always means the loop object, so a variable bound as `{% for loop in array %}` is unreachable. Iterating a non-array is a render error. **Nested loops multiply** — see [Output size](#output-size). |
-| Comments | `{# … #}` | Single- or multi-line; removed from the output; never evaluated; unclosed is a syntax error. |
+| Output | `{{ title }}` | Whitespace optional (`{{title}}`). Accepts a condition, not just a value — `{{ a == 1 }}` prints `true`, and `{{ a && b }}`, `{{ !a }}`, `{{ "text" contains "x" }}` work — plus `??` chains. A container renders as compact JSON; a single-element array holding a scalar unwraps to its element. See [Structured values](#structured-values). |
+| Paths | `{{ author.name }}`, `{{ authors[0].name }}`, `{{ meta["a:b"] }}`, `{{ xs[loop.index0] }}`, `{{ obj[k] }}` | Dotted properties, numeric indices, quoted keys, or any single-value expression in brackets. `xs["1"]` indexes an array like `xs[1]`. Names may contain spaces (`{{ First name }}`) — inside `{{ }}` a word operator between plain names is read as part of one name, so prefer `&&`/`||`/`!` there; `and`/`or`/`contains` are unambiguous inside `{% if %}`. |
+| Fallback | `{{ title ?? headline ?? "Untitled" }}` | First truthy term wins and contributes its value. `??` has the lowest precedence — `a ?? b == c` is `a ?? (b == c)` — and filters bind before it. |
+| Literals | `{{ "text" }}`, `{{ 'x' }}`, `{{ 7 }}`, `{{ 1.5 }}`, `{{ true }}`, `{{ null }}` | Usable as values and condition operands. Inside a quoted literal `\n`, `\t` and `\r` produce the control characters; `\"`, `\'` and `\\` produce the quote or backslash; any other `\x` drops the backslash (`\q` is `q`, `\x41` is `x41`), matching knap 0.6.0. The same unescaping applies to quoted filter arguments and bracket keys. |
+| Filters | `{{ value \| filter }}`, `{{ value \| filter:"arg" }}`, `{{ value \| filter:(a, b) }}` | Chains run left to right and carry typed values, not text. Parameters: a single value after `:`, several inside `:(…)`, `"key":"value"` pairs, and `x => expr` arrow expressions where a filter accepts one. See [Filter parameters](#filter-parameters). In a comparison, a filter may sit on the right operand (`a == b \| upper`) but not the left. |
+| Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. `==`/`!=` compare containers by *identity*, not structure — see [Structured values](#structured-values). `<`/`<=`/`>`/`>=` are numbers and strings only. |
+| Truthiness | — | `false`, `null`, missing values, `""`, `0`, and `[]` are false; everything else — including `{}` — is true. |
+| Loops | `{% for item in items %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`, plus `{item}_index` — the 0-based counter named after the iterator (`item_index` here). Iterating `null` or a missing value emits nothing; anything else non-array is a render error. Inside a loop `loop` always means the loop object, so a variable bound as `{% for loop in array %}` is unreachable. **Nested loops multiply** — see [Output size](#output-size). |
+| Assignment | `{% set slug = title \| kebab %}` | Ordered assignment of a literal, expression or filtered value; produces no output. Assignments land in the innermost scope — inside a loop that is the current iteration's scope, so they die with the loop; `{% if %}` opens no scope. |
+| Comments | `{# … #}` | Single- or multi-line; removed from the output; never evaluated; ends at the first `#}`, does not nest; unclosed is a syntax error. |
 | Missing values | — | Render as empty text; are false in conditions. |
+| Whitespace control | `{{- … -}}`, `{%- … -%}` | **Parse error.** `knap help syntax` documents dash markers, but the 0.6.0 CLI rejects them (`Unexpected character '-'`). Fidelity is to the oracle, so k4o rejects them too — a documented doc-vs-implementation divergence. |
 
-Whitespace notes: one newline immediately following an opening tag
-(`{% if %}`, `{% elseif %}`, `{% else %}`, `{% for %}`) is consumed once, so
-branches and loop bodies join naturally; the newline before a closing tag is
-preserved — place it deliberately. In Markdown and GFM, loop iterations join
-with a newline and one body-final newline is removed. Some standalone-tag whitespace
-still differs from knap (see [Differential boundary](#differential-boundary)).
+### Whitespace
+
+The model matches the oracle byte-for-byte:
+
+- A logic tag is **standalone** when its line holds only whitespace,
+  `{% … %}` tags and `{# … #}` comments besides it. A standalone open,
+  mid or set tag (`{% if %}`, `{% elseif %}`, `{% else %}`, `{% for %}`,
+  `{% set %}`) consumes the rest of its own line — trailing spaces plus
+  one newline — and a standalone `{% elseif %}`/`{% else %}`/`{% endif %}`
+  additionally swallows the whitespace run that ends the body before it.
+  `A\n{% if x %}\nB\n{% endif %}\nC` renders `A\nB\nC`. Whitespace *before*
+  a standalone tag is ordinary emitted text — `A\n  {% if x %}\nB\n{% endif %}`
+  renders `A\n  B`.
+- A standalone `{% endif %}`/`{% endfor %}` leaves the newline *after* the
+  tag in the output.
+- An **inline** open or mid tag trims the same-line spaces and tabs at the
+  head of the body it opens (`{% if x %} A` → `A`); it never reaches past
+  a newline. An inline `{% else %}`/`{% endif %}`/`{% endfor %}` keeps the
+  whitespace before it (`{% if x %}A {% endif %}` → `A `).
+- Loop iterations join with a newline, emitted only between iterations
+  that produced output — a loop of `{% set %}`-only bodies emits nothing
+  and leaves no separator. A standalone `{% for %}` strips the body's
+  leading whitespace run once, on the first emitted iteration; trailing
+  spaces/tabs before `{% endfor %}` are trimmed once after the last
+  iteration, so they land between iterations rather than after the last.
+- A column-0 `{% endfor %}` also eats the one newline that ends the line
+  before it (`B1\n{% endfor %}` ends `B1`); an indented `{% endfor %}`
+  leaves that whitespace inside the body instead.
 
 ### Structured values
 
-Two rules cover values that are not plain text.
+Values flow through pipelines as typed JSON values — filters see arrays and
+objects, not serialized text, and chains preserve the type
+(`{{ xs | sort | first }}` never re-parses a string). A string that *holds*
+serialized JSON is the exception: a `["a","b"]`- or `{"k":…}`-shaped string
+is re-parsed before a filter sees it, so `{{ "[1,2]" | list }}` iterates the
+array — knap's "serialized collections from another filter are recognized
+automatically" rule.
 
-**Comparing them.** `==` and `!=` are structural, not scalar-only. Arrays and
-objects are compared member by member over an explicit work list, so a value
-always equals itself at any depth the data parser accepts and two objects are
-equal regardless of key order:
-
-```text
-{% if a == b %}same{% else %}different{% endif %}   {# {"a":{"p":1,"q":2},"b":{"q":2,"p":1}} -> same #}
-```
-
-`contains` uses the same comparison when the haystack is an array, so
-`{% if items contains needle %}` matches an object member. Comparing across
-different kinds is simply not equal: `{} == []` is false, and an object never
-equals its own JSON text.
-
-**Interpolating them.** An `{{ ... }}` that resolves to an object or array
-emits compact JSON rather than markup:
+**Comparing them.** `==`, `!=` and `contains` compare containers by
+**identity** (JavaScript `===`/SameValueZero): two structurally equal but
+distinct objects are not equal, while `a == a` always is:
 
 ```text
-{{ data }}
+{% if a == b %}same{% else %}different{% endif %}   {# {"a":{"p":1},"b":{"p":1}} -> different #}
 ```
 
-with `{"data":{"k":1,"s":"x"}}` emits `{"k":1,"s":"x"}`. This matches Knap's
-behaviour for structured values and is pinned by the `var-json-object`
-fixture. Key order is preserved from the input, so two inputs that are
-semantically equal but serialise differently produce different bytes.
+`contains` applies the same rule member-wise: `{% if items contains x %}`
+matches an object element only when `x` names that same value. Numbers
+compare by value, so `1 == 1.0` is true regardless of representation.
 
-Reach for the field you want rather than the container: `{{ data.k }}` renders
-`1`, and `{{ items | list }}` renders the selected format. The JSON form is a deliberate
-escape hatch, not the recommended way to emit prose.
+**Interpolating them.** An `{{ … }}` that resolves to an object or array
+emits compact JSON — `{"k":1,"s":"x"}` — with JSON.stringify's string
+escaping and number printing. A single-element array holding a primitive
+(string, number, boolean — not `null`) unwraps to its element, so
+`{{ ["a"] }}` renders `a`.
 
-One bound applies: an interpolated container nested deeper than **256 levels**
-fails with a render diagnostic (exit 1, empty stdout) instead of writing past
-the JSON writer's fixed-size stack. The knap 0.6.0 oracle rejects data that
-deep at parse time, so no template in the shared subset is affected.
+Numbers print the JavaScript way: shortest round-trip digits, decimal
+notation for exponents in `[-6, 20]`, and `d[.ddd]e±E` outside it — `2.0`
+renders `2`, `1e21` renders `1e+21`, `0.0000001` renders `1e-7`. `NaN` and
+`Infinity` print as themselves.
 
-Floats are the one place where interpolation is lossy: `{"a":2.0}` renders as
-`2`, so scalar interpolation emits a whole-number float and the equal integer
-as the same bytes. Use `{{ a }}` for display, and do not reach for `==` to
-recover the distinction: numeric equality compares the numeric value, not the
-integer/float representation, so `{% if a == 2 %}` is true for both `2` and
-`2.0`.
+Where a filter argument is coerced to text, the coercion is JavaScript's:
+an object becomes `[object Object]` and an array joins its elements with
+commas.
 
-### Filter arguments
+### Filter parameters
 
-A filter takes at most one argument, and how it is written decides whether it
-is a value or a literal.
+A filter takes parameters after a colon. The forms:
 
 | Written as | Meaning |
 | --- | --- |
 | `filter:"text"` | The literal `text`. Always. |
 | `filter:7` | The literal `7`. |
-| `filter:name` | The value of the top-level data key `name`, **or** the literal word `name` if the data has no such key. |
+| `filter:name` | The value of `name` resolved like a variable (dotted paths included), **or** the literal word `name` if it resolves to nothing. |
+| `filter:(a, b)` | Several parameters, each a value expression: `{{ t \| truncate:(100, "…") }}`, `{{ rows \| table:("Name", "Age") }}`. |
+| `filter:"k":"v"` | A key/value pair (`replace`, `where`); unparenthesized lists continue after a pair: `replace:("a":"b", "c":"d")`. |
+| `filter:x => expr` | An arrow expression (`map`): `x => x.name`, `x => ({name: x.name})`, `x => "pre/${x}"`. |
 
-So with `{"name":"Example","url":"https://example.com/post"}`:
+A bare-word parameter that resolves to `null` yields its own text
+(`link:url` is `"url"` when `url` is not in the data); a parameter that
+resolves to a container coerces the JavaScript way, so `link:obj` passes
+`[object Object]` to the filter rather than failing.
 
-```text
-{{ name | link:url }}      -> "Example":https://example.com/post
-{{ name | link:"url" }}    -> "Example":url
-```
+### URL schemes in `link` and `image`
 
-The bare form exists because the common case is a URL that lives in the data,
-and the alternative is unreachable: there is no syntax for putting a
-data-derived value into a filter argument other than a bare word. Only
-top-level keys are consulted — `link:a.b` is a syntax error, not a nested
-lookup.
-
-If the key exists but holds `null`, an object or an array, the argument is a
-`bad argument` error rather than a silent fallback to the bare word, since
-none of those have a text form.
-
-### URL schemes in `link`
-
-`link` refuses the `javascript:`, `vbscript:` and `data:` schemes (matched
-case-insensitively), because a Textile renderer will happily turn those into
-script execution:
+`link` takes a URL as its input and an optional label parameter — the
+common case is the URL living in the data:
 
 ```text
-{{ name | link:url }}   with {"url":"javascript:alert(1)"}   -> bad argument
+{{ url | link:name }}      with {"url":"https://example.com","name":"Example"}  -> [Example](https://example.com)
+{{ url | link:"Example" }}  -> [Example](https://example.com)
+{{ url | link }}            -> [link](https://example.com)   (default label)
 ```
 
-The check is entity-aware: CommonMark resolves entity and numeric character
-references inside link destinations, so `&#106;avascript:`, `&#x6a;avascript:`
-and `javascript&colon;` are all `javascript:` in disguise and are refused the
-same way. In the CommonMark/GFM output a literal `&` in a URL is emitted as
-`&amp;`, which the renderer decodes back to `&` — legitimate query strings
-round-trip unchanged, while smuggled references stay inert.
+Arrays emit one link per item; an object maps URLs to labels.
 
-Navigational and relative URLs are untouched — `http:`, `https:`,
-`mailto:`, `ftp:`, `file:` and site-relative paths all pass. A colon that is
-not a well-formed scheme, as in `a/b:c`, is treated as part of the path.
+The `javascript:`, `vbscript:` and `data:` schemes (matched
+case-insensitively) never reach the output: `link` strips the destination
+and emits `[label]()`, matching the oracle byte-for-byte; `image` refuses
+them with an error. The check is entity-aware — CommonMark resolves entity
+and numeric character references inside link destinations, so
+`&#106;avascript:`, `&#x6a;avascript:` and `javascript&colon;` are all
+`javascript:` in disguise and are treated the same way.
 
-The trust boundary here is deliberate: this tool's stated purpose is to
-produce Textile for a downstream parser, so a scheme that executes in that
-parser is refused at the point it is written rather than shipped. If your
-input is trusted and you need one of the refused schemes anyway, this is a
-deliberate limit, not an oversight.
+Other URLs are percent-encoded the way the oracle encodes them: space,
+`"`, `<`, `>`, `[`, `]`, `(`, `)`, `\`, backtick, ASCII control characters
+and non-ASCII bytes each become `%XX`. Navigational and relative URLs —
+`http:`, `https:`, `mailto:`, `ftp:`, `file:`, site-relative paths — pass
+through; a colon that is not a well-formed scheme, as in `a/b:c`, belongs
+to the path. The label is Markdown-escaped (`&` → `&amp;`, `<>_*[]` get a
+backslash) so it cannot smuggle markup into the destination's owner.
 
 ### Output size
 
@@ -228,10 +244,91 @@ trips the instant the limit is crossed instead of after the allocator is
 exhausted — a small cap fails in milliseconds where the old behaviour took
 seconds to produce hundreds of megabytes first.
 
+### Depths and limits
+
+Everything the oracle bounds, k4o bounds, with a diagnostic — never a
+panic or an abort:
+
+- **Template nesting:** 100 block levels (`if`/`for` nesting).
+- **Condition depth:** 100 levels; each `and`/`or`/`not` link costs one and
+  each parenthesized group costs two, so 49 nested parens pass and 50 fail.
+- **Data and value depth:** 100 levels — input JSON and filter-produced
+  values deeper than that are a render diagnostic, matching the oracle's
+  `LIMIT_EXCEEDED`.
+- **Serialization depth:** 100 — interpolating a container nested deeper
+  fails with a diagnostic instead of writing past the serializer's bound.
+- **Input size:** template and data files are read up to 16 MiB.
+- **Output:** the 256 MiB cap above.
+
+## Filter registry
+
+The complete knap 0.6.0 CLI registry — 78 filters plus the `stripmd`
+alias — grouped the way `knap help` groups them. The suite's registry
+property test requires every implemented name to carry at least one
+fixture; a name still in flight fails with a `not implemented yet`
+diagnostic rather than a wrong render. `k4o help filters` prints the list
+with one-line descriptions and `k4o help filter <name>` the full
+per-filter reference (syntax, parameters, examples) — the captured oracle
+text, offline.
+
+| Group | Filters | Notes |
+| --- | --- | --- |
+| Markup | `h1`–`h6`, `bold`, `italic`, `code`, `code_block`, `blockquote`, `list`, `link`, `image`, `hr`, `hard_break`, `escape_md`, `fragment_link` | CommonMark emitters. `code` chooses span vs fenced block (multiline or `:lang`); `list` takes `bullet`/`numbered`/`task`/`numbered-task`; `image` maps object URL keys to alt text; `fragment_link` appends `#:~:text=` anchors. |
+| Text | `camel`, `capitalize`, `kebab`, `lower`, `pascal`, `snake`, `title`, `uncamel`, `upper`, `trim`, `truncate`, `truncatewords`, `indent`, `unescape`, `safe_name`, `encode_uri`, `decode_uri` | Casing, whitespace and URI transforms. Most recurse over arrays (and, per filter, object values): `["a","b"] \| upper` → `["A","B"]`. |
+| Numbers | `calc`, `number_format`, `round` | `calc:"+10"`, `*2`, `**3` — `+ - * / ** ^`. |
+| Dates | `date`, `date_modify`, `duration` | Format tokens, interval math (`"+1d"`), ISO 8601 durations. |
+| Collections | `compact`, `first`, `join`, `last`, `length`, `merge`, `nth`, `object`, `parse_json`, `reverse`, `slice`, `sort`, `split`, `sum`, `unique`, `where` | Typed values end to end. `nth` takes pattern syntax (`nth:3`, `nth:2n`, `nth:n+3`); `sort:"prop"` sorts object arrays; `where:("status", "draft")` filters by property. |
+| Extensions | `callout`, `wikilink`, `footnote`, `strike`, `table`, `table_pretty`, `highlight`, `math`, `math_block`, `comment` | Obsidian-flavored constructs. `table`/`table_pretty` emit pipe tables — headers from object keys or `:(h1, h2)` parameters. `highlight`, `math`/`math_block` and `comment` are the three that switch to HTML passthrough under `--format oliver`. |
+| Advanced | `map`, `template`, `replace`, `yaml`, `yaml_property` | `map` takes a property name or an arrow (`x => ({name: x.name})`); `template` interpolates `${prop}`; `replace` takes `"old":"new"` pairs or regexes (`"/[aeiou]/g"`) via a bounded, step-capped engine; `yaml`/`yaml_property` write bounded YAML (block or `flow`). |
+| HTML | `remove_attr`, `strip_attr`, `remove_tags`, `replace_tags`, `strip_tags`, `strip_md`, `stripmd` | Clean HTML inside *data* with a tag/attribute tokenizer — no DOM. `stripmd` is the `strip_md` alias. |
+| Blocked | `embed`, `remove_html`, `html_to_json` | Need a host environment — a vault resolver or DOM — that an embeddable engine does not have (upstream segregates the DOM pair itself). Both render and lint fail them with a diagnostic naming the filter. |
+
+## k4o batch
+
+`k4o batch` renders one template against many data rows — a CSV file, a
+JSON array, or a folder of JSON objects — writing one file per row:
+
+```sh
+k4o batch t.knap --data rows.csv --output-dir out
+k4o batch t.knap --data items.json --output-dir out --filename '{{ title | safe_name }}.md' --overwrite
+k4o batch -t '{{ name }}' --data-json '[{"name":"a"},{"name":"b"}]' --output-dir out --dry-run
+```
+
+- `--data` is the *source*: a `.csv` file (header row names the keys), a
+  `.json` array file, a directory of `.json` files, or `-` for stdin
+  (JSON). `--format csv|json` overrides the inference; `--data-json`
+  takes the array inline.
+- `--output-dir` is required and created if needed.
+- Output names come from `--filename` — a template rendered against each
+  row and sanitized to a basename — else `1.md`, `2.md`, … for CSV/JSON
+  rows and `<file stem>.md` for folder sources. Duplicate names are an
+  error; existing files are refused without `--overwrite`; `--dry-run`
+  lists the would-be paths on stdout and writes nothing.
+- `--set key=value` merges into every row before rendering.
+- Each row is a normal buffered render, so a failing row aborts the batch
+  with its diagnostic on stderr. The summary (`Wrote N files to dir.` /
+  `Would write …`) goes to stderr, like the oracle.
+
+## k4o validate
+
+`k4o validate` checks that a template parses — no data, no render:
+
+```sh
+zig-out/bin/k4o validate template.knap
+zig-out/bin/k4o validate -t '{{ ok }}'
+```
+
+```text
+template.knap: Template is valid (static checks only; runtime values are not checked).
+```
+
+Exit `0` on a clean parse; a broken template exits `1` with the diagnostic
+on stderr and empty stdout, same as `render` — it shares the one parser.
+
 ## k4o lint
 
-`k4o lint` checks templates against the documented subset and teaches the
-fix. Knap is new to training data, so agents hallucinate it; lint closes the
+`k4o lint` checks templates against the knap language and teaches the fix.
+Knap is new to training data, so agents hallucinate it; lint closes the
 loop — write, verify, fix — with education-grade diagnostics: every finding
 names the offending construct, states the rule, and shows an example of
 right. Verify and educate in one binary, over one parser.
@@ -258,10 +355,10 @@ k4o lint: 1 problem(s) in 1 of 1 file(s)
 - **Stable exit codes.** `0` when every file is clean, `1` when any file has
   findings or cannot be read. Findings go to stdout.
 - **Static scope.** lint checks what is knowable without data: template
-  syntax, the 15-filter registry, argument arity, and the `link` URL rules
-  that a literal argument already violates. Data-dependent failures (a loop
-  over a non-array, a ragged table) are render errors and stay with
-  `k4o render`.
+  syntax, the filter registry, parameter arity, blocked filters, and the
+  `link` URL rules that a literal argument already violates. Data-dependent
+  failures (a loop over a non-array, a ragged table) are render errors and
+  stay with `k4o render`.
 - **Rules have ids.** `unclosed-if`, `unknown-filter`, `link-scheme`,
   `bracket-key`, … — stable identifiers the test suite pins per fixture, so
   a parser message can never drift away from its teaching text unnoticed.
@@ -315,150 +412,50 @@ and render exactly as claimed.
 Exit 0 unless the filesystem fails; anything else is exit 1 with the error
 on stderr.
 
-## Filter registry → output formats
+## k4o help
 
-This is the complete registry (15 names). The fixture corpus pins all three
-formats byte-for-byte for every filter, reusing `.markdown` expectations for
-non-table GFM output and `.gfm` expectations for tables. The Markdown table is
-raw HTML because pipe tables are a GFM extension, not part of CommonMark 0.31.2.
-The GFM format changes only that row of the registry.
+The offline language reference, embedded in the binary — the captured text
+of `knap help` at 0.6.0 (see `tools/differential/oracle-docs/`):
 
-| Filter | Argument | Textile | CommonMark |
-| --- | --- | --- | --- |
-| `h1` … `h6` | — | `h2. Title` | `## Title` |
-| `bold` | — | `*watch out*` | `**watch out**` |
-| `italic` | — | `_very_` | `*very*` |
-| `code` | — | `@zig build@` | `` `zig build` `` (adaptive backtick delimiter) |
-| `codeblock` | — | `bc. ` + content; `bc.. ` when content has a blank line | fenced code block (adaptive fence) |
-| `blockquote` | — | `bq. Quote` | `> Quote` |
-| `link` | URL (required) | `"Example":https://example.com/` | `[Example](https://example.com/)` |
-| `list` | — | `* item`; nested `**`/`***` | `- item`; nested tab-indented lists |
-| `numbered` | — | `# item`; nested `##`/`###` | `1. item`, `2. item`; nested ordered lists |
-| `table` | — | `\|_. name\|` then `\|Ada\|` | `<table>` with `<thead>`, `<tbody>`, escaped cells |
-
-In Markdown and GFM, `code` emits nothing for empty input. All-space input
-remains a code span containing exactly the original spaces, without padding.
-Other nonempty code retains its boundary spaces and backticks, including
-`" a "`; it is not trimmed to match knap. `codeblock` preserves every existing
-terminal newline. Nonempty content without a terminal newline needs one before
-the closing fence, so its parsed code content ends in one newline. Empty
-content produces an empty fenced block, not a blank code line.
-
-In Textile, `codeblock` emits `bc. ` + content. A single-block signature ends
-at the first blank line, so content with a blank line followed by more content
-is emitted with the extended `bc.. ` signature instead — it holds across blank
-lines until the next block signature or the end of input, and the tail stays
-inside the code block instead of being re-parsed downstream. The extended form
-absorbs whatever follows it until that boundary, so template text directly
-after such a code block needs its own block signature (`p. `, `h2. `, …).
-Blank lines that trail into nothing leak nothing, and keep the single form.
-
-Error conditions (all produce a message with kind, line, and column):
-
-- Unknown filter name, or an argument where none is allowed / missing where
-  required — `bad argument` / `unknown filter`.
-- Phrase filters (`h1`…`h6`, `bold`, `italic`, `code`, `blockquote`, `link`)
-  require single-line text; `link` also rejects `"` in text, and whitespace,
-  `"`, ASCII control characters or a leading `<` in the URL.
-- `link` rejects the `javascript:`, `vbscript:` and `data:` URL schemes, and
-  any filter argument that resolves to a non-text value. See
-  [URL schemes](#url-schemes-in-link).
-- `list`/`numbered`/`table` require arrays; `table` rows must all have the
-  same cell count and cells must not contain `|` or newlines; `list` nesting
-  beyond 3 levels is an error.
-- Textile values are left as fragments, as before. Markdown phrase filters
-  escape user-supplied punctuation and raw HTML; markup from earlier filters
-  in a chain stays markup.
-
-## Example renders (from JSON data)
-
-Heading (`examples/heading.knap` + `.json`):
-
-```text
-h1. The Machine Stops
-
-_A reading note_
+```sh
+k4o help syntax            # variables, filter chaining, logic, whitespace
+k4o help filters           # every filter, one line each
+k4o help tags              # if / elseif / else / endif / for / endfor / set
+k4o help filter table      # full reference for one filter
+k4o help tag for           # syntax and examples for one tag
 ```
 
-List (`examples/list.knap`):
+## Out of scope
 
-```text
-h2. Sections
+Still out, by design — a static Zig binary is the product:
 
-* The Air-Ship
-* The Mending Apparatus
-* The Homeless
-```
-
-Table (`examples/table.knap`):
-
-```text
-|_. name|_. age|
-|Walter|5|
-|Florence|6|
-```
-
-The same heading example under `--format markdown` emits:
-
-```text
-# The Machine Stops
-
-*A reading note*
-```
-
-The Markdown table uses HTML, parsed as a CommonMark raw HTML block rather
-than a GFM pipe table. Under `--format gfm`, the table example emits the
-knap 0.6.0 no-argument table form:
-
-```text
-|  |  |
-| - | - |
-| name | age |
-| Walter | 5 |
-| Florence | 6 |
-```
-
-(The emitted table form is byte-identical to the textile-spec `page_layout`
-table example input, and the other emitted forms — `h1. `, `bq. `, `* item`,
-`# item`, `"text":url`, `@code@`, `bc. `, and `bc.. ` after the same spec's
-extended-block rule — follow the phrase-modifier and block-signature forms in
-the same specification.)
-
-## What's out (an honest subset)
-
-Not implemented, by design — a static Zig binary and a documented subset are
-the product:
-
-- **Async variable resolvers.** No async anything; the engine is a pure
-  function over bytes.
-- **DOM-dependent filters** (`html_to_json`, `remove_html`, and friends). A
-  static Zig binary has no DOM — that is a feature, not a gap.
-- **The rest of Knap's broader filter catalog** (data/serialization filters
-  such as `yaml`, `calc`, `parse_json`, `date`, `truncate`, `map`, `where`, …).
-- **Regex features** and **whitespace-control operators** (`{%- … -%}`).
-- **`{% set %}` assignment** and the **`??` fallback operator**.
-- **Batch/CSV modes and `--output` file flags** from the reference CLI; only
-  `render` with stdout is provided.
-- **Bracket expressions that reference variables** (e.g. `a[loop.index0]`);
-  brackets take a number or a quoted string key only.
-- **Spaced names in conditions**; spaced names work in interpolation and
-  filter inputs only.
-- **Other GFM extensions** (strikethrough, task lists, autolinks) and table
-  alignment or cell spans. The opt-in GFM format adds pipe tables only.
+- **Host-dependent filters.** `embed` (a vault resolver), `remove_html` and
+  `html_to_json` (a DOM) are registered — `k4o help` documents them — but
+  render and lint fail them with a `needs a host environment` diagnostic.
+- **Host integrations.** Browser selectors, prompt execution, Markdown
+  conversion back ends — the oracle's CLI does not supply them either.
+- **Async resolvers.** No async anything; the engine is a pure function
+  over bytes.
+- **Dash whitespace markers** (`{{- -}}`, `{%- -%}`). Documented by
+  `knap help syntax`, rejected by the 0.6.0 CLI; k4o matches the CLI.
 
 ## Verification (red-green, no goldbricks)
 
 The suite contains a fixture corpus (byte-exact: template + JSON → expected
-Textile **and** Markdown, including trailing-newline behavior) and error fixtures
-(message-checked including line/column), plus GFM table expectations and unit
-tests. Two compile-time mutant modes let anyone *prove* the tests fail against
-degraded engines:
+Markdown, including trailing-newline behavior), error fixtures
+(message-checked including line/column), registry property tests (every
+registered filter has a fixture or an accounted status), lint coverage, and
+unit tests for engine semantics the corpus does not pin. Two compile-time
+mutant modes let anyone *prove* the tests fail against degraded engines:
 
 ```sh
 zig build test                                # expects: all pass
 zig build test -Dengine-mode=passthrough      # goldbrick: engine returns the template unchanged -> MUST fail
-zig build test -Dengine-mode=markdown         # wrong default dialect -> MUST fail
+zig build test -Dengine-mode=noeval           # tags never evaluate -> MUST fail
 ```
+
+Tests that do not touch the engine assert `expectNormalEngine`, so they
+fail the mutants too — a survivor means the suite stopped discriminating.
 
 The table below is **generated** by `tools/verify.sh` from a real run and
 re-asserted by CI on every push and pull request: if the committed table ever
@@ -468,94 +465,60 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 100 passed, 0 failed |
-| `passthrough` | 0 passed, 100 failed |
-| `markdown` | 0 passed, 100 failed |
+| `normal` | 23 passed, 0 failed |
+| `passthrough` | 0 passed, 23 failed |
+| `noeval` | 0 passed, 23 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification
 job runs on Linux; the counts are platform-independent.
 
-Every test re-asserts Textile-specific syntax (`h1. `, `bq. `, `*bold*`,
-`_italic_`, `"text":url`, `|_. …|`) through a dialect guard, so neither
-passthrough output nor Markdown emission can satisfy it.
+`tools/verify.sh` runs all of the above plus a ReleaseSafe run, CLI smoke
+checks (the three examples compared byte-for-byte; `-t`, stdin, `--set`,
+`-o`, `validate`, `help` surfaces; error paths exit 1 with empty stdout;
+the `--max-output` trip and its suffix forms), lint smoke checks (the clean
+corpus lints clean; broken templates are rejected with the expected
+teaching rule), init smoke checks (create, idempotent rerun,
+supersede-with-archive, user files untouched) and a static cross-build
+check (`-Dtarget=x86_64-linux-musl`, verified with `file(1)` as
+"statically linked"; the macOS host build links the system libc, which is
+a platform constraint).
 
-`tools/verify.sh` runs all of the above plus CLI smoke checks (the three
-examples compared byte-for-byte; error paths exit 1 with empty stdout), lint
-smoke checks (the clean corpus lints clean; broken templates are rejected
-with the expected teaching rule), init smoke checks (create, idempotent
-rerun, supersede-with-archive, user files untouched) and a static cross-build check
-(`-Dtarget=x86_64-linux-musl`, verified with
-`file(1)` as "statically linked"; the macOS host build links the system libc,
-which is a platform constraint).
+## Differential testing
 
-### Differential boundary
+`tools/differential/package-lock.json` pins the official knap CLI to
+**0.6.0** and records its npm integrity hash and transitive dependency. The
+harness uses only the oracle's own CLI — `knap render` and
+`knap --version`; no TypeScript source is read — and captures `knap help`
+under `tools/differential/oracle-docs/` (the same text `k4o help` embeds).
+`tools/differential/cases.json` and `expected.json` commit the templates,
+data and oracle stdout.
 
-`tools/differential/package-lock.json` pins the official black-box knap CLI
-to **0.6.0** and records its npm integrity hash and transitive dependency.
-The harness uses only `knap render` and `knap --version`; no TypeScript source
-is read. `tools/differential/cases.json` and `expected.json` commit the
-templates, data and oracle stdout. The suite checks exact stdout from both
-programs, a pinned oracle snapshot, exit status, empty stdout on errors,
-diagnostics, timeouts and crashes. It covers headings, phrase filters,
-chains, lists, empty and missing data, comments, nested loops, whitespace
-and malformed templates. Every `.markdown` fixture also runs through
-[Oliver](https://github.com/drawmeanelephant/oliver) as a CommonMark parser,
-with structural assertions for headings, emphasis, links, code, lists and
-HTML tables. Raw HTML is rejected for non-table cases. CI builds Oliver at
-`a45aa5ede557ea7cf7de727bdba61c1f80af544b`.
+`python3 tools/differential/run.py` then checks, for every committed case
+and every `fixtures/`/`examples/` template:
 
-**Full byte parity with knap is not possible without changing existing k4o
-template semantics.** The harness explicitly enumerates 12 existing fixtures
-outside that shared subset in
-`EXCLUDED_FIXTURES` and still checks their Markdown bytes and Oliver parse.
-The conflicts are:
+- k4o's stdout is **byte-identical** to the oracle's — no exclusion list.
+- error fixtures exit 1 with empty stdout and the pinned diagnostic, and
+  the oracle rejects them too (both engines refuse; only the message shape
+  differs — the oracle's `PARSE_ERROR` texts are not part of k4o's
+  surface).
+- every Markdown render also parses through
+  [Oliver](https://github.com/drawmeanelephant/oliver) with structural
+  assertions — expected element tags, real nested lists, no leaked
+  template tags, and raw HTML rejected unless the case deliberately
+  carries it (adversarial cases check that `<script>` in data can never
+  reach the output unescaped).
+- `k4o lint` agrees: clean corpus lints clean, broken corpus reports, and
+  data-dependent failures stay invisible to a static lint by design.
 
-- Knap 0.6.0 rejects k4o's `codeblock` and `numbered` filter names.
-- Knap's `link` takes a URL input and label argument, the reverse of k4o.
-- Knap compares structured values by identity; k4o compares structure.
-- Two nested/adjacent standalone-tag cases trim whitespace differently.
-
-Changing these in only one backend would violate the shared template and data
-contract. The differential suite has zero divergences **in its compatible
-corpus**, not over the entire language. The same job also runs `k4o lint`
-over every case template — the backend's own fixtures: ok cases must lint
-clean without data, and the deliberately broken cases must be rejected with
-teaching output (data-dependent breakage like a loop over a non-array stays
-invisible to a static lint and is checked at render time instead). Markdown-only adversarial tests also
-check that punctuation and HTML in data cannot silently turn headings,
-emphasis or list items into different CommonMark nodes. Code-content
-regressions check empty and all-space spans, preserved boundary spaces and
-backticks, and fences with zero, one, or multiple terminal newlines through
-Oliver, with identical GFM/Markdown bytes.
-
-Scalar `list` and `numbered` items and `blockquote` content escape
-ordered-list markers such as `1. text`, `1) text` and their multi-digit
-forms at the start of a line (including up to three leading spaces), and
-`~` at the start of a line, so a tilde fence or a list marker in data
-cannot restructure the surrounding block. Escaped text stays literal;
-genuine nested arrays still create nested lists. This intentionally
-differs from knap's bytes for those markers and is checked structurally
-through Oliver, not added to the byte-parity corpus. Markdown and GFM emit
-identical escapes; Textile and raw interpolation remain unchanged.
-
-Nested `numbered` lists start at their preceding parent's content column:
-three spaces after `9.`, four after `10.`, five after `100.`, and so on.
-These offsets accumulate through the supported three levels. Oliver checks
-the actual parent/child relationships at marker-width transitions, not
-parity with knap's tab indentation. Sibling numbering and Textile are unchanged.
-
-`examples/table` and `fixtures/filter-table-basic` now byte-match knap 0.6.0
-under `--format gfm` against committed `.gfm` expectations. They are not
-excluded. Their unchanged `.markdown` expectations still run through Oliver
-as HTML tables. Every non-table fixture also verifies GFM/Markdown byte parity.
+CI builds Oliver at `2a0a1e90d2e259e4189940d16b3907e8a82196b1`.
 
 ## Clean-room record
 
 k4o is a clean-room implementation: behavior was derived from Knap's
-**user-facing documentation**, the Textile specification and black-box CLI
-observations. Knap's TypeScript source was never read. The Markdown backend
-is checked through Oliver's CommonMark 0.31.2 parser.
+**user-facing documentation**, the captured `knap help` text, and black-box
+CLI observations of the 0.6.0 binary. Knap's TypeScript source was never
+read. The Markdown output is checked through Oliver's parser.
 
 Sources consulted (with pinned revisions; fetched 2026-09-29):
 
@@ -567,14 +530,7 @@ Sources consulted (with pinned revisions; fetched 2026-09-29):
 | | | `website/src/content/docs/filters.md` | `a0fc8c10ac435c7ac284c3b116b3526f9d02b36eb37c17fa603ecd669fe904df` |
 | | | `website/src/content/docs/logic.md` | `8629fcbd8c170769ef0d4a4d45fce2e784ea2d326b291e0ca2529f2917598bd8` |
 | | | `website/src/content/docs/cli.md` | `1662d6afb7098a6258ae90f568cdeb23454cb645ede24d1fb79a4647394ba2f9` |
-| [textile/textile-spec](https://github.com/textile/textile-spec) | `a0615116ddf341bd57f54564af96e018bd5b9731` | `README.textile` | `5f07d62f8182a53e166315119e865eef7e4fb2cb2b0252616483019e1a76f03a` |
-| | | `CHANGELOG` | `5efd5274043889e9dc1516db158e0c803642f8a57e40d9ea6b547fba807cb266` |
-| | | `index.yaml` | `a78a5d8615cfd2fc94ba3b785a3ad7df1900c8916414b6d4290ebb06936eaa10` |
-| | | `paragraph_text.yaml` | `68f901606cead3069af01ba49d52b87176253507797596ef0e862cb48bd3601b` |
-| | | `page_layout.yaml` | `9eaac8e35526906c58062176bf45b424e484f3419ca40034241395e78e2a676b` |
-| | | `phrase_modifiers.yaml` | `76ba245b10cf8b8ac445d6e6cac75e8b7ed2412bd303d2721e6064c5ca301566` |
-| | | `attributes.yaml` | `03a2428dfe1e49ae72edd2efb4528d924245b3cabe03ddbea8620900bfc4dfa5` |
-| | | `html.yaml` | `b3643c21becc2702891618bca1fe1efbca6558062c9cc07660edd4e931ce72f3` |
+| knap 0.6.0 binary (npm, black box) | `tools/differential/package-lock.json` | `knap help` output — captured under `tools/differential/oracle-docs/` | — |
 
 Zig 0.17 standard library documentation (local toolchain) was used for
 language and library APIs only.

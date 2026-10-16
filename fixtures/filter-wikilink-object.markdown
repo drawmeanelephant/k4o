@@ -1,0 +1,1 @@
+["[[Project Atlas|Atlas]]","[[Daily Notes|Journal]]"]

@@ -114,12 +114,19 @@ HTML_FIXTURE_PREFIXES = ("filter-remove_attr", "filter-strip_attr",
 # Oliver extensions are opt-in — a fixture that relies on one enables it
 # for the structural check.
 OLIVER_FLAGS = {
-    "filter-callout-basic": ["--callouts"],
-    "filter-strike-basic": ["--strikethrough"],
-    "filter-wikilink-basic": ["--wikilinks"],
-    "filter-footnote-basic": ["--footnotes"],
-    "filter-list-task-basic": ["--task-lists"],
+    "filter-callout": ["--callouts"],
+    "filter-strike": ["--strikethrough"],
+    "filter-wikilink": ["--wikilinks"],
+    "filter-footnote": ["--footnotes"],
+    "filter-list-task": ["--task-lists"],
 }
+
+
+def oliver_flags(stem):
+    for prefix, flags in OLIVER_FLAGS.items():
+        if stem.startswith(prefix):
+            return flags
+    return []
 
 # tag, optional substring, oliver flags — what a filter's output must
 # become inside this Oliver build.
@@ -133,8 +140,14 @@ def expected_tag(name):
         return "input"
     if stem.startswith("filter-list-") or stem.startswith("render-nonarray-list"):
         return "ul"
+    if stem.startswith("filter-callout-fold"):
+        # Oliver 1.1 doesn't parse the `[!type]-`/`+` fold marker —
+        # the output is a plain blockquote, still valid CommonMark.
+        return "blockquote"
     if stem.startswith("filter-callout"):
         return "callout"
+    if stem.startswith("filter-strike"):
+        return "del"
     if stem.startswith("filter-table_pretty"):
         return "table"
     if stem.startswith("filter-table") or stem.startswith("render-ragged-table") or name == "examples/table":
@@ -145,7 +158,17 @@ def expected_tag(name):
     if stem.startswith("filter-wikilink"):
         return "a"
     if stem.startswith("filter-footnote"):
-        return "footnote-ref"
+        # Bare `[^n]:` definitions render nothing in Oliver without a
+        # matching `[^n]` reference — valid CommonMark, empty output.
+        return None
+    if stem.startswith("filter-highlight"):
+        # `==x==` is knap-only; Oliver parses it as literal paragraph
+        # text — `--format oliver` emits `<mark>` instead.
+        return "p"
+    if stem.startswith("filter-math"):
+        return "p"
+    if stem.startswith("filter-comment"):
+        return "p"
     if stem.startswith("filter-comment"):
         return "p"
     if stem.startswith("filter-math"):
@@ -174,7 +197,7 @@ def expected_tag(name):
 def check_commonmark(name, markdown, oliver, required=None, raw_html="rejected"):
     stem = name.split("/")[-1]
     required = required or expected_tag(name)
-    flags = OLIVER_FLAGS.get(stem, [])
+    flags = oliver_flags(stem)
     # Oliver's default allows raw HTML (knap emits content verbatim —
     # fidelity means the same). The structural check forces rejected mode
     # so a leaked template tag or injected markup surfaces loudly instead;

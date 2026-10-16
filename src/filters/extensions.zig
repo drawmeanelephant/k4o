@@ -153,10 +153,18 @@ fn strikeLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
 }
 
 fn commentLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
+    // oliver mode emits the HTML form Oliver consumes.
+    if (it.format == .oliver) return autoBlock("<!--", "-->", it, s);
     return autoBlock("%%", "%%", it, s);
 }
 
 fn mathLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
+    if (it.format == .oliver) {
+        if (std.mem.indexOfAny(u8, s, "\r\n") != null) {
+            return blockWrap("<div class=\"math\">", "</div>", it, s);
+        }
+        return inlineWrap("<span class=\"math\">", "</span>", it, s);
+    }
     if (std.mem.indexOfAny(u8, s, "\r\n") != null) {
         return blockWrap("$$", "$$", it, s);
     }
@@ -164,11 +172,15 @@ fn mathLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
 }
 
 fn mathBlockLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
+    if (it.format == .oliver) {
+        return blockWrap("<div class=\"math\">", "</div>", it, s);
+    }
     return blockWrap("$$", "$$", it, s);
 }
 
 /// `==..x..==` where the marker carries an optional color emoji.
 fn highlightLeaf(open: []const u8, it: *Interp, s: []const u8) Error![]const u8 {
+    if (it.format == .oliver) return inlineWrap("<mark>", "</mark>", it, s);
     return inlineWrap(open, "==", it, s);
 }
 
@@ -568,7 +580,7 @@ fn emitTable(
                 const pv = try it.evalParam(e);
                 const t = (try filters.scalarText(it.alloc, pv.*)) orelse
                     return filters.badArg(it, call, "filter '{s}' column names must be text", .{call.name});
-                try param_headers.append(it.alloc, t);
+                try param_headers.append(it.alloc, try cellEscape(it, t));
             },
             else => {},
         }
@@ -576,6 +588,7 @@ fn emitTable(
 
     switch (v.*) {
         .object => |obj| {
+            if (obj.count() == 0) return v; // `{}` passes through.
             // An object becomes [key, value] row pairs with the first
             // entry acting as the header — oracle-observed.
             var it2 = obj.iterator();
@@ -583,12 +596,12 @@ fn emitTable(
             while (it2.next()) |entry| {
                 const val = try cellText(it, entry.value_ptr);
                 if (first) {
-                    try headers.append(it.alloc, entry.key_ptr.*);
+                    try headers.append(it.alloc, try cellEscape(it, entry.key_ptr.*));
                     try headers.append(it.alloc, val);
                     first = false;
                 } else {
                     const row = try it.alloc.alloc([]const u8, 2);
-                    row[0] = entry.key_ptr.*;
+                    row[0] = try cellEscape(it, entry.key_ptr.*);
                     row[1] = val;
                     try rows.append(it.alloc, row);
                 }
@@ -603,14 +616,19 @@ fn emitTable(
                 if (item != .array) all_arr = false;
             }
             if (all_obj) {
-                // Headers come from the first object's keys only.
+                // Headers come from the first object's keys only; keys
+                // are stored raw for lookup and escaped for display.
                 const first = arr.items[0].object;
+                var raw_headers = std.ArrayList([]const u8).empty;
                 var it2 = first.iterator();
-                while (it2.next()) |entry| try headers.append(it.alloc, entry.key_ptr.*);
+                while (it2.next()) |entry| {
+                    try raw_headers.append(it.alloc, entry.key_ptr.*);
+                    try headers.append(it.alloc, try cellEscape(it, entry.key_ptr.*));
+                }
                 width = headers.items.len;
                 for (arr.items) |*item| {
                     const row = try it.alloc.alloc([]const u8, width);
-                    for (headers.items, 0..) |h, i| {
+                    for (raw_headers.items, 0..) |h, i| {
                         const obj = item.object;
                         row[i] = if (obj.get(h)) |val| try cellText(it, &val) else "";
                     }
@@ -711,7 +729,10 @@ fn writeRow(
 /// take JavaScript's `String(v)` — `[object Object]` for objects,
 /// comma-joins for arrays, `null` for null.
 fn cellText(it: *Interp, v: *const Value) Error![]const u8 {
-    const raw = try jsStr(it, v);
+    return cellEscape(it, try jsStr(it, v));
+}
+
+fn cellEscape(it: *Interp, raw: []const u8) Error![]const u8 {
     if (std.mem.indexOfScalar(u8, raw, '|') == null) return raw;
     var out = std.ArrayList(u8).empty;
     for (raw) |c| {

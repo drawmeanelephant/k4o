@@ -50,24 +50,10 @@ pub const entries = markup.names ++ text.names ++ numbers.names ++
 pub const blocked_names = [_][]const u8{ "html_to_json", "remove_html", "embed" };
 
 /// Registered names whose implementations have not landed yet (the
-/// filter batches fill them in; the property test skips these).
+/// property test skips these; every name here needs a fixture before it
+/// can leave the list).
 pub const pending = [_][]const u8{
-    "fragment_link",
-    "callout",  "wikilink",    "footnote",   "strike",     "highlight",
-    "math",     "math_block",  "comment",
-    "camel",    "capitalize",  "kebab",      "lower",      "pascal",
-    "snake",    "title",       "uncamel",    "upper",      "trim",
-    "truncate", "truncatewords", "indent",   "unescape",   "safe_name",
-    "encode_uri", "decode_uri",
-    "calc",     "number_format", "round",
-    "date",     "date_modify", "duration",
-    "compact",  "first",       "join",       "last",       "length",
-    "merge",    "nth",         "object",     "parse_json", "reverse",
-    "slice",    "sort",        "split",      "sum",        "unique",
-    "where",
-    "map",      "template",    "replace",    "yaml",       "yaml_property",
-    "remove_attr", "strip_attr", "remove_tags", "replace_tags",
-    "strip_tags", "strip_md",  "stripmd",
+    "date", "date_modify", "duration",
 };
 
 pub fn registry() []const []const u8 {

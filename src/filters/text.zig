@@ -76,30 +76,35 @@ pub fn apply(
         return stringified(it, input, {}, unescapeText);
     }
 
-    // Case group: vectorize strings and keys inside containers.
+    // snake/kebab/uncamel/lower are also stringify-model: the oracle
+    // transforms JSON.stringify(v), so a \t inside a string leaf stays
+    // escaped (\t -> _ for snake would otherwise corrupt the escape).
+    if (eq(u8, name, "snake")) {
+        try filters.arity(it, call, 0);
+        return stringified(it, input, {}, snakeText);
+    }
+    if (eq(u8, name, "kebab")) {
+        try filters.arity(it, call, 0);
+        return stringified(it, input, {}, kebabText);
+    }
+    if (eq(u8, name, "uncamel")) {
+        try filters.arity(it, call, 0);
+        return stringified(it, input, {}, uncamelText);
+    }
+    if (eq(u8, name, "lower")) {
+        try filters.arity(it, call, 0);
+        return stringified(it, input, {}, lowerText);
+    }
+
+    // Vectorize group: containers re-parse and transform string leaves
+    // plus object keys; non-strings serialize through.
     if (eq(u8, name, "capitalize")) {
         try filters.arity(it, call, 0);
         return vectorizedKeys(it, input, {}, capitalizeText);
     }
-    if (eq(u8, name, "kebab")) {
-        try filters.arity(it, call, 0);
-        return vectorizedKeys(it, input, {}, kebabText);
-    }
-    if (eq(u8, name, "lower")) {
-        try filters.arity(it, call, 0);
-        return vectorizedKeys(it, input, {}, lowerText);
-    }
-    if (eq(u8, name, "snake")) {
-        try filters.arity(it, call, 0);
-        return vectorizedKeys(it, input, {}, snakeText);
-    }
     if (eq(u8, name, "title")) {
         try filters.arity(it, call, 0);
         return vectorizedKeys(it, input, {}, titleText);
-    }
-    if (eq(u8, name, "uncamel")) {
-        try filters.arity(it, call, 0);
-        return vectorizedKeys(it, input, {}, uncamelText);
     }
 
     // pascal is stringify-model like camel/upper: pascal(true) -> "True".
@@ -546,29 +551,53 @@ fn kebabText(_: void, it: *Interp, s: []const u8) Error![]const u8 {
     return out.toOwnedSlice(it.alloc);
 }
 
+const title_small_words = [_][]const u8{ "a", "an", "the", "and", "or", "for", "nor", "but", "at", "by", "in", "of", "on", "to", "from" };
+
+fn isTitleSmallWord(word: []const u21) bool {
+    for (word) |c| if (c > 0x7F) return false;
+    for (title_small_words) |w| {
+        if (w.len != word.len) continue;
+        var ok = true;
+        for (word, 0..) |c, k| {
+            if (asciiLower(c) != w[k]) {
+                ok = false;
+                break;
+            }
+        }
+        if (ok) return true;
+    }
+    return false;
+}
+
+/// knap title-case: collapse whitespace runs, capitalize each word's
+/// first character and lowercase the rest — except small words
+/// (articles/conjunctions/prepositions) which stay lowercase in
+/// non-leading position ("x a y" -> "X a Y", "a x" -> "A X").
 fn titleText(_: void, it: *Interp, s: []const u8) Error![]const u8 {
     const cps = try decodeAll(it.alloc, s);
     var out = std.ArrayList(u8).empty;
-    var word_start = true;
     var i: usize = 0;
+    var first = true;
     while (i < cps.len) {
-        const c = cps[i];
-        if (isWs(c)) {
+        if (isWs(cps[i])) {
             try out.append(it.alloc, ' ');
-            const run_start = i;
             while (i < cps.len and isWs(cps[i])) i += 1;
-            // The leading whitespace run does not open a word — " a"
-            // titles to " a" while "a b" gives "A B".
-            word_start = run_start != 0;
+            first = false;
             continue;
         }
-        if (word_start) {
-            try appendUpper(&out, it.alloc, c);
-            word_start = false;
+        var j = i;
+        while (j < cps.len and !isWs(cps[j])) j += 1;
+        const word = cps[i..j];
+        if (first or !isTitleSmallWord(word)) {
+            try appendUpper(&out, it.alloc, word[0]);
+            // The oracle lowers word.slice(1) — sigma context is the
+            // slice alone, so "XΣ" yields "Xσ" but "aXΣ" yields "Axς".
+            for (1..word.len) |k| try appendLowerAt(&out, it.alloc, word[1..], k - 1);
         } else {
-            try appendLowerAt(&out, it.alloc, cps, i);
+            for (word, 0..) |_, k| try appendLowerAt(&out, it.alloc, word, k);
         }
-        i += 1;
+        first = false;
+        i = j;
     }
     return out.toOwnedSlice(it.alloc);
 }
@@ -591,8 +620,10 @@ fn uncamelText(_: void, it: *Interp, s: []const u8) Error![]const u8 {
 fn capitalizeText(_: void, it: *Interp, s: []const u8) Error![]const u8 {
     const cps = try decodeAll(it.alloc, s);
     var out = std.ArrayList(u8).empty;
-    for (cps, 0..) |c, i| {
-        if (i == 0) try appendUpper(&out, it.alloc, c) else try appendLowerAt(&out, it.alloc, cps, i);
+    if (cps.len > 0) {
+        try appendUpper(&out, it.alloc, cps[0]);
+        // upper(s[0]) + lower(s.slice(1)) — sigma context is the slice.
+        for (1..cps.len) |i| try appendLowerAt(&out, it.alloc, cps[1..], i - 1);
     }
     return out.toOwnedSlice(it.alloc);
 }
@@ -827,9 +858,16 @@ fn safeNameText(mode: SafeMode, it: *Interp, s: []const u8) Error![]const u8 {
             try tmp.appendSlice(it.alloc, name);
             name = tmp.items;
         }
-        // Trailing dots and spaces are invalid on Windows.
+        // Trailing dots and whitespace are invalid on Windows.
         var end = name.len;
-        while (end > 0 and (name[end - 1] == '.' or name[end - 1] == ' ')) end -= 1;
+        while (end > 0) {
+            var start = end - 1;
+            while (start > 0 and (name[start] & 0xC0) == 0x80) start -= 1;
+            const n = std.unicode.utf8ByteSequenceLength(name[start]) catch 1;
+            const cp = if (start + n <= end) std.unicode.utf8Decode(name[start .. start + n]) catch name[start] else name[start];
+            if (cp != '.' and !isWs(cp)) break;
+            end = start;
+        }
         name = name[0..end];
     }
     if (name.len > 0 and name[0] == '.') name[0] = '_';

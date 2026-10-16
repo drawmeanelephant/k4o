@@ -779,13 +779,12 @@ pub const Interp = struct {
             },
             .object => |obj| {
                 w.writeByte('{') catch return error.OutOfMemory;
-                var it = obj.iterator();
-                var i: usize = 0;
-                while (it.next()) |entry| : (i += 1) {
+                const keys = try jsObjectKeys(self.alloc, obj);
+                for (keys, 0..) |key, i| {
                     if (i > 0) w.writeByte(',') catch return error.OutOfMemory;
-                    try jsWriteString(w, entry.key_ptr.*);
+                    try jsWriteString(w, key);
                     w.writeByte(':') catch return error.OutOfMemory;
-                    try self.jsStringifyDepth(entry.value_ptr, out, depth + 1);
+                    try self.jsStringifyDepth(obj.getPtr(key).?, out, depth + 1);
                 }
                 w.writeByte('}') catch return error.OutOfMemory;
             },
@@ -860,6 +859,52 @@ fn literalValue(lit: parse.Literal) std.json.Value {
         .boolean => |b| .{ .bool = b },
         .null => .{ .null = {} },
     };
+}
+
+/// JS property order: canonical array-index keys ("0","2","10") sort
+/// numerically first, all other keys keep insertion order. `["0"]` counts
+/// (index 0); `"01"` and `"-1"` are plain string keys.
+pub fn jsObjectKeys(alloc: std.mem.Allocator, obj: std.json.ObjectMap) error{OutOfMemory}!([]const []const u8) {
+    const IndexKey = struct {
+        idx: u64,
+        key: []const u8,
+    };
+    var idx_keys = std.ArrayList(IndexKey).empty;
+    var keys = try alloc.alloc([]const u8, obj.count());
+    var str_i: usize = 0;
+    var it = obj.iterator();
+    while (it.next()) |e| {
+        const k = e.key_ptr.*;
+        if (indexKeyNum(k)) |n| {
+            try idx_keys.append(alloc, .{ .idx = n, .key = k });
+        } else {
+            keys[str_i] = k;
+            str_i += 1;
+        }
+    }
+    if (idx_keys.items.len == 0) return keys[0..str_i];
+    std.mem.sort(IndexKey, idx_keys.items, {}, struct {
+        fn lt(_: void, a: IndexKey, b: IndexKey) bool {
+            return a.idx < b.idx;
+        }
+    }.lt);
+    const ordered = try alloc.alloc([]const u8, obj.count());
+    for (idx_keys.items, 0..) |ik, i| ordered[i] = ik.key;
+    for (keys[0..str_i], 0..) |k, i| ordered[idx_keys.items.len + i] = k;
+    return ordered;
+}
+
+/// A canonical array-index key — `"0"`, `"2"`, `"10"` — parses cleanly,
+/// has no leading zero (except `"0"` itself), and stays below 2^32-1.
+fn indexKeyNum(s: []const u8) ?u64 {
+    if (s.len == 0 or s.len > 10) return null;
+    if (s.len > 1 and s[0] == '0') return null;
+    for (s) |c| {
+        if (!std.ascii.isDigit(c)) return null;
+    }
+    const n = std.fmt.parseInt(u64, s, 10) catch return null;
+    if (n >= 4294967295) return null;
+    return n;
 }
 
 fn truthy(v: std.json.Value) bool {

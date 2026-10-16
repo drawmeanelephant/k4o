@@ -490,6 +490,8 @@ fn join(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*const V
             var out = std.ArrayList(u8).empty;
             for (arr.items, 0..) |*item, i| {
                 if (i > 0) try out.appendSlice(it.alloc, sep);
+                // JS Array#join: null/undefined elements stringify to "".
+                if (item.* == .null) continue;
                 try out.appendSlice(it.alloc, try filters.jsToString(it.alloc, item));
             }
             break :blk it.make(.{ .string = out.items });

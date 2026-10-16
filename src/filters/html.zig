@@ -580,13 +580,15 @@ fn stripMdText(_: void, it: *Interp, s: []const u8) Error![]const u8 {
     cur = try mdWikiLink(it, cur, false);
     cur = try mdLinks(it, cur);
     cur = try mdUrls(it, cur);
-    cur = try mdFootnotes(it, cur);
     cur = try mdEmptyBrackets(it, cur);
+    cur = try mdFootnotes(it, cur);
     cur = try mdHtml(it, cur);
     cur = try mdCode(it, cur);
-    for ([_]u8{ '*', '_', '~' }) |m| cur = try mdDelim(it, cur, m, .{ .empty_ok = true });
-    cur = try mdCaret(it, cur);
-    cur = try mdHighlight(it, cur);
+    for ([_]u8{ '*', '_' }) |m| cur = try mdDelim(it, cur, m, .{ .empty_ok = true });
+    cur = try mdDelim(it, cur, '~', .{ .empty_ok = true, .width2 = true });
+    cur = try mdWord(it, cur, '~');
+    cur = try mdWord(it, cur, '^');
+    cur = try mdDelim(it, cur, '=', .{ .empty_ok = true, .width2 = true });
     cur = try mdBullets(it, cur);
     cur = try mdBlockquote(it, cur);
     cur = try mdPipes(it, cur);
@@ -747,8 +749,8 @@ fn mdUrls(it: *Interp, s: []const u8) Error![]const u8 {
     return out.toOwnedSlice(it.alloc);
 }
 
-/// `[^ref]` footnote refs drop (the `[^1]: ...` definition line loses its
-/// marker the same way — the rest of the line stays).
+/// `[^ref]` footnote refs drop, nonempty (`[^]` stays; the `[^1]: ...`
+/// definition line loses its marker the same way — the rest stays).
 fn mdFootnotes(it: *Interp, s: []const u8) Error![]const u8 {
     var out = std.ArrayList(u8).empty;
     var i: usize = 0;
@@ -756,7 +758,7 @@ fn mdFootnotes(it: *Interp, s: []const u8) Error![]const u8 {
         if (s[i] == '[' and i + 1 < s.len and s[i + 1] == '^') {
             var j = i + 2;
             while (j < s.len and s[j] != ']') j += 1;
-            if (j < s.len) {
+            if (j < s.len and j > i + 2) {
                 i = j + 1;
                 continue;
             }
@@ -811,15 +813,13 @@ fn mdCode(it: *Interp, s: []const u8) Error![]const u8 {
     return mdDelim(it, s, '`', .{ .nl_ok = true });
 }
 
-/// `*..*`, `_.._`, `~..~` — `m[^m\n]*m`: empty content is allowed (so
-/// `***` collapses to `*`) but newlines are not (`*a\nb*` survives).
-const DelimCfg = struct { empty_ok: bool = false, nl_ok: bool = false };
+const DelimCfg = struct { empty_ok: bool = false, nl_ok: bool = false, width2: bool = false };
 
 fn mdDelim(it: *Interp, s: []const u8, m: u8, comptime cfg: DelimCfg) Error![]const u8 {
     var out = std.ArrayList(u8).empty;
+    const width: usize = if (cfg.width2) 2 else 1;
     var i: usize = 0;
     while (i < s.len) {
-        const width: usize = if (m == '=') 2 else 1;
         if (i + width > s.len or s[i] != m or (width == 2 and s[i + 1] != m)) {
             try out.append(it.alloc, s[i]);
             i += 1;
@@ -835,12 +835,11 @@ fn mdDelim(it: *Interp, s: []const u8, m: u8, comptime cfg: DelimCfg) Error![]co
                 continue;
             }
         } else {
-            // lazy `==(.+?)==`: first `==` leaving a nonempty gap;
-            // `.` never crosses a newline.
+            // lazy `mm(.*?)mm`: first closing pair; `.` never crosses `\n`.
             var found = false;
             while (j + 1 < s.len) : (j += 1) {
                 if (s[j] == '\n') break;
-                if (s[j] == m and s[j + 1] == m and j > i + width) {
+                if (s[j] == m and s[j + 1] == m) {
                     found = true;
                     break;
                 }
@@ -857,21 +856,18 @@ fn mdDelim(it: *Interp, s: []const u8, m: u8, comptime cfg: DelimCfg) Error![]co
     return out.toOwnedSlice(it.alloc);
 }
 
-/// `^sup^` -> `sup`: `\^(\S+)\^` — a greedy whitespace-free run (it can
-/// swallow inner `^`s, so `^^d^^` -> `^d^`), nonempty and `^`-closed.
-fn mdCaret(it: *Interp, s: []const u8) Error![]const u8 {
+/// `^sup^` / `~a~` — `m(\w+)m`: word-chars only, nonempty — `^^x^^` ->
+/// `^x^` (the inner pair never forms), `^a b^` and `~a;b~` survive.
+fn mdWord(it: *Interp, s: []const u8, m: u8) Error![]const u8 {
     var out = std.ArrayList(u8).empty;
     var i: usize = 0;
     while (i < s.len) {
-        if (s[i] == '^') {
-            var e = i + 1;
-            while (e < s.len and !isSpace(s[e])) e += 1;
-            var p = e;
-            while (p > i + 1 and s[p - 1] != '^') p -= 1;
-            const close = p - 1;
-            if (close > i + 1) {
-                try out.appendSlice(it.alloc, s[i + 1 .. close]);
-                i = close + 1;
+        if (s[i] == m) {
+            var j = i + 1;
+            while (j < s.len and isNameStart(s[j])) j += 1;
+            if (j > i + 1 and j < s.len and s[j] == m) {
+                try out.appendSlice(it.alloc, s[i + 1 .. j]);
+                i = j + 1;
                 continue;
             }
         }
@@ -879,17 +875,6 @@ fn mdCaret(it: *Interp, s: []const u8) Error![]const u8 {
         i += 1;
     }
     return out.toOwnedSlice(it.alloc);
-}
-
-/// `==x==` highlight; lazy `(.+?)` content and it reruns until stable, so
-/// `====x====` -> `==x==` -> `x`.
-fn mdHighlight(it: *Interp, s: []const u8) Error![]const u8 {
-    var cur = s;
-    while (true) {
-        const next = try mdDelim(it, cur, '=', .{});
-        if (next.len == cur.len and std.mem.eql(u8, next, cur)) return cur;
-        cur = next;
-    }
 }
 
 /// `^[-*+] ` — bullet markers drop marker plus exactly one space, and a

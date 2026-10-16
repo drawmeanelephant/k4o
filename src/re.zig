@@ -594,7 +594,7 @@ const Parser = struct {
                         const start = s.pos;
                         while (s.pos < s.src.len and s.src[s.pos] != '>') : (s.pos += 1) {
                             const ch = s.src[s.pos];
-                            if (!(std.ascii.isAlphanumeric(ch) or ch == '_' or ch == '$'))
+                            if (!(std.ascii.isAlphanumeric(@intCast(ch)) or ch == '_' or ch == '$'))
                                 return s.fail("invalid capture-group name");
                         }
                         if (s.pos >= s.src.len or s.pos == start)
