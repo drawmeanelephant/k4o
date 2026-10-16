@@ -581,11 +581,11 @@ fn stripMdText(_: void, it: *Interp, s: []const u8) Error![]const u8 {
     cur = try mdWikiLink(it, cur, false);
     cur = try mdLinks(it, cur);
     cur = try mdUrls(it, cur);
-    cur = try mdEmptyBrackets(it, cur);
     cur = try mdFootnotes(it, cur);
     cur = try mdHtml(it, cur);
     cur = try mdInline(it, cur);
     cur = try mdBullets(it, cur);
+    cur = try mdEmptyBrackets(it, cur);
     cur = try mdBlockquote(it, cur);
     cur = try mdCollapse(it, cur);
     return mdTrim(cur);
