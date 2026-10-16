@@ -24,6 +24,7 @@ pub const dates = @import("filters/dates.zig");
 pub const collections = @import("filters/collections.zig");
 pub const extensions = @import("filters/extensions.zig");
 pub const advanced = @import("filters/advanced.zig");
+const transform = @import("filters/transform.zig");
 pub const html = @import("filters/html.zig");
 
 pub const Error = error{ Template, OutOfMemory };
@@ -32,7 +33,9 @@ pub const Format = enum { markdown, oliver };
 pub const Interp = engine.Interp;
 pub const Value = std.json.Value;
 
-const modules = .{ markup, text, numbers, dates, collections, extensions, advanced, html };
+// transform runs ahead of advanced so `map`/`template` — which live in
+// advanced's registry names — hit the implemented module first.
+const modules = .{ markup, text, numbers, dates, collections, extensions, transform, advanced, html };
 
 /// The complete registry: every filter name the oracle's CLI knows. Each
 /// implemented name needs at least one fixture case; the blocked set below

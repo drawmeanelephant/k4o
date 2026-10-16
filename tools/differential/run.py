@@ -105,6 +105,12 @@ def compare(name, template, data, status, expected, k4o, knap, directory, format
     return ours.stdout
 
 
+# HTML-cleanup filters legitimately emit raw HTML (that IS the
+# transform), so their fixtures need allowed mode instead of rejected.
+HTML_FIXTURE_PREFIXES = ("filter-remove_attr", "filter-strip_attr",
+    "filter-remove_tags", "filter-replace_tags", "filter-strip_tags",
+    "filter-strip_md")
+
 # Oliver extensions are opt-in — a fixture that relies on one enables it
 # for the structural check.
 OLIVER_FLAGS = {
@@ -173,6 +179,8 @@ def check_commonmark(name, markdown, oliver, required=None, raw_html="rejected")
     # fidelity means the same). The structural check forces rejected mode
     # so a leaked template tag or injected markup surfaces loudly instead;
     # cases that deliberately carry raw HTML switch to escaped.
+    if any(stem.startswith(pfx) for pfx in HTML_FIXTURE_PREFIXES):
+        raw_html = "allowed"
     command = [oliver, "render", "--from", "markdown", "--raw-html", raw_html, *flags]
     result = invoke(command, input=markdown)
     assert result.returncode == 0 and not result.stderr, (

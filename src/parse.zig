@@ -112,7 +112,7 @@ pub const Cond = union(enum) {
 
 pub const Node = union(enum) {
     text: []const u8,
-    output: Expr,
+    output: Chain,
     ifelse: IfChain,
     loop: LoopNode,
     set: SetNode,
@@ -120,12 +120,20 @@ pub const Node = union(enum) {
 
 pub const SetNode = struct {
     name: []const u8,
-    expr: Expr,
+    expr: Chain,
     offset: usize,
 };
 
+/// A `??`-chain of conditions — `??` binds looser than `and`/`or`/`==`,
+/// so `x ?? y == "z"` reads `x ?? (y == "z")`: the first truthy term
+/// wins and contributes its value (a bool for comparisons, the operand
+/// value otherwise).
+pub const Chain = struct {
+    terms: []const Cond,
+};
+
 pub const Branch = struct {
-    cond: ?Cond,
+    cond: ?Chain,
     body: []Node,
     /// Absolute offset of the tag that opened this branch.
     offset: usize,
@@ -467,9 +475,9 @@ const Parser = struct {
 
         if (std.mem.eql(u8, keyword, "if")) {
             if (depth >= max_depth) return q.err("nesting too deep (max {d} levels)", .{max_depth});
-            const cond = try q.parseCondExpr();
+            const chain = try q.parseChainExpr(false);
             if (standalone) p.eatLineEnd();
-            const ifc = try p.parseIfChain(cond, tag_start, depth + 1, standalone);
+            const ifc = try p.parseIfChain(chain, tag_start, depth + 1, standalone);
             return .{ .kind = .{ .if_node = ifc }, .trim_next = false };
         }
         if (std.mem.eql(u8, keyword, "for")) {
@@ -510,7 +518,7 @@ const Parser = struct {
             const name = q.word() orelse return q.err("expected a variable name after 'set'", .{});
             q.skipWs();
             if (!q.matchOp("=")) return q.err("expected '=' in set tag", .{});
-            const expr = try q.parseExpr(true);
+            const expr = try q.parseChainExpr(false);
             q.skipWs();
             if (!q.eof()) return q.err("unexpected text after the set expression", .{});
             if (standalone) p.eatLineEnd();
@@ -592,7 +600,7 @@ const Parser = struct {
 
     fn parseIfChain(
         p: *Parser,
-        first_cond: Cond,
+        first_cond: Chain,
         open_offset: usize,
         depth: usize,
         open_standalone: bool,
@@ -600,7 +608,7 @@ const Parser = struct {
         var branches = std.ArrayList(Branch).empty;
         errdefer branches.deinit(p.alloc);
 
-        var current_cond: ?Cond = first_cond;
+        var current_cond: ?Chain = first_cond;
         var current_open = open_offset;
         var saw_else = false;
 
@@ -614,8 +622,8 @@ const Parser = struct {
                     try branches.append(p.alloc, .{ .cond = current_cond, .body = seq.nodes, .offset = current_open });
                     var q = Scanner{ .p = p, .text = seq.end_content, .base = seq.end_content_offset };
                     _ = q.word();
-                    const cond = try q.parseCondExpr();
-                    current_cond = cond;
+                    const chain = try q.parseChainExpr(false);
+                    current_cond = chain;
                     current_open = seq.end_offset;
                     next_trim = !seq.end_standalone;
                     seq = try p.parseSeq(.branch, depth);
@@ -649,12 +657,12 @@ const Parser = struct {
         }
     }
 
-    fn parseExprTag(p: *Parser, content: []const u8, tag_start: usize, spaced_names: bool) Error!Expr {
+    fn parseExprTag(p: *Parser, content: []const u8, tag_start: usize, spaced_names: bool) Error!Chain {
         var q = Scanner{ .p = p, .text = content, .base = tag_start + 2 };
-        const expr = try q.parseExpr(spaced_names);
+        const chain = try q.parseChainExpr(spaced_names);
         q.skipWs();
         if (!q.eof()) return q.err("unexpected text in output tag", .{});
-        return expr;
+        return chain;
     }
 };
 
@@ -997,11 +1005,21 @@ const Scanner = struct {
         const c = s.peek() orelse return s.err("expected an arrow body after '=>'", .{});
         if (c == '(') {
             s.pos += 1;
+            s.skipWs();
+            if (s.eof() or s.peek() != '{') {
+                return s.err("expected '{{' to open the arrow object", .{});
+            }
+            s.pos += 1;
             var fields = std.ArrayList(ArrowField).empty;
             errdefer fields.deinit(s.p.alloc);
             while (true) {
                 s.skipWs();
-                if (!s.eof() and s.peek() == ')') {
+                if (!s.eof() and s.peek() == '}') {
+                    s.pos += 1;
+                    s.skipWs();
+                    if (s.eof() or s.peek() != ')') {
+                        return s.err("expected ')' after the arrow object", .{});
+                    }
                     s.pos += 1;
                     if (fields.items.len == 0) return s.err("expected an object field in the arrow body", .{});
                     break;
@@ -1022,11 +1040,16 @@ const Scanner = struct {
                     s.pos += 1;
                     continue;
                 }
-                if (!s.eof() and s.peek() == ')') {
+                if (!s.eof() and s.peek() == '}') {
+                    s.pos += 1;
+                    s.skipWs();
+                    if (s.eof() or s.peek() != ')') {
+                        return s.err("expected ')' after the arrow object", .{});
+                    }
                     s.pos += 1;
                     break;
                 }
-                return s.err("expected ',' or ')' in the arrow object", .{});
+                return s.err("expected ',' or '}}' in the arrow object", .{});
             }
             return .{ .object = try fields.toOwnedSlice(s.p.alloc) };
         }
@@ -1193,15 +1216,27 @@ const Scanner = struct {
         return buf.toOwnedSlice(s.p.alloc);
     }
 
-    fn parseCondExpr(s: *Scanner) Error!Cond {
-        const cond = try s.parseOr(0, 0);
-        s.skipWs();
+    /// `cond (?? cond)*` — the chain separator sits looser than every
+    /// boolean operator, so `a ?? b == c` is `a ?? (b == c)`.
+    fn parseChainExpr(s: *Scanner, spaced_names: bool) Error!Chain {
+        var terms = std.ArrayList(Cond).empty;
+        errdefer terms.deinit(s.p.alloc);
+        while (true) {
+            const cond = try s.parseOr(0, 0, spaced_names);
+            try terms.append(s.p.alloc, cond);
+            s.skipWs();
+            if (s.matchOp("??")) {
+                if (s.eof()) return s.err("expected a value", .{});
+                continue;
+            }
+            break;
+        }
         if (!s.eof()) return s.err("unexpected text after condition", .{});
-        return cond;
+        return .{ .terms = try terms.toOwnedSlice(s.p.alloc) };
     }
 
-    fn parseOr(s: *Scanner, paren_depth: usize, cond_depth: usize) Error!Cond {
-        var lhs = try s.parseAnd(paren_depth, cond_depth);
+    fn parseOr(s: *Scanner, paren_depth: usize, cond_depth: usize, spaced_names: bool) Error!Cond {
+        var lhs = try s.parseAnd(paren_depth, cond_depth, spaced_names);
         var depth = cond_depth;
         while (true) {
             const save = s.pos;
@@ -1209,7 +1244,7 @@ const Scanner = struct {
             if (s.matchOp("||") or s.matchWord("or")) {
                 if (depth >= max_cond_depth) return s.err("expression nesting too deep", .{});
                 depth += 1;
-                const rhs = try s.parseAnd(paren_depth, depth);
+                const rhs = try s.parseAnd(paren_depth, depth, spaced_names);
                 // Copy through temporaries: `lhs` must not be read while
                 // its own replacement is being constructed (result-location
                 // aliasing corrupts the pointers otherwise).
@@ -1224,8 +1259,8 @@ const Scanner = struct {
         return lhs;
     }
 
-    fn parseAnd(s: *Scanner, paren_depth: usize, cond_depth: usize) Error!Cond {
-        var lhs = try s.parseNot(paren_depth, cond_depth);
+    fn parseAnd(s: *Scanner, paren_depth: usize, cond_depth: usize, spaced_names: bool) Error!Cond {
+        var lhs = try s.parseNot(paren_depth, cond_depth, spaced_names);
         var depth = cond_depth;
         while (true) {
             const save = s.pos;
@@ -1233,7 +1268,7 @@ const Scanner = struct {
             if (s.matchOp("&&") or s.matchWord("and")) {
                 if (depth >= max_cond_depth) return s.err("expression nesting too deep", .{});
                 depth += 1;
-                const rhs = try s.parseNot(paren_depth, depth);
+                const rhs = try s.parseNot(paren_depth, depth, spaced_names);
                 // Copy through temporaries (see parseOr).
                 const lhs_ptr = try s.p.makeCond(lhs);
                 const rhs_ptr = try s.p.makeCond(rhs);
@@ -1246,32 +1281,32 @@ const Scanner = struct {
         return lhs;
     }
 
-    fn parseNot(s: *Scanner, paren_depth: usize, cond_depth: usize) Error!Cond {
+    fn parseNot(s: *Scanner, paren_depth: usize, cond_depth: usize, spaced_names: bool) Error!Cond {
         s.skipWs();
         if (s.matchWord("not") or s.matchBang()) {
             if (cond_depth >= max_cond_depth) return s.err("expression nesting too deep", .{});
-            const inner = try s.parseNot(paren_depth, cond_depth + 1);
+            const inner = try s.parseNot(paren_depth, cond_depth + 1, spaced_names);
             return .{ .neg = try s.p.makeCond(inner) };
         }
         if (s.peek() == '(') {
             // Parenthesized groups cost two depth levels in the oracle.
             if (paren_depth >= 50 or cond_depth + 2 > max_cond_depth) return s.err("expression nesting too deep", .{});
             s.pos += 1;
-            const inner = try s.parseOr(paren_depth + 1, cond_depth + 2);
+            const inner = try s.parseOr(paren_depth + 1, cond_depth + 2, spaced_names);
             s.skipWs();
             if (s.peek() != ')') return s.err("expected ')'", .{});
             s.pos += 1;
             return inner;
         }
-        return s.parseComparison();
+        return s.parseComparison(spaced_names);
     }
 
-    /// `lhs [op rhs]` — the left operand is a plain `??` chain (no
-    /// filters, matching the oracle's LHS restriction); the right operand
-    /// allows filter chains (`x == y | upper` renders in the oracle).
-    fn parseComparison(s: *Scanner) Error!Cond {
+    /// `lhs [op rhs]` — operands are single pipelines (the `??` chain
+    /// lives one level up, joining whole conditions). The left operand
+    /// rejects filters, matching the oracle's LHS restriction.
+    fn parseComparison(s: *Scanner, spaced_names: bool) Error!Cond {
         s.skipWs();
-        const lhs = try s.parseOperandExpr(true);
+        const lhs = try s.parseOperandExpr(spaced_names);
         const save = s.pos;
         s.skipWs();
         var op: ?CmpOp = null;
@@ -1291,24 +1326,24 @@ const Scanner = struct {
             op = .contains;
         }
         if (op) |o| {
+            if (lhs.terms[0].filters.len != 0) {
+                return s.err("filters are not allowed on the left side of a comparison", .{});
+            }
             s.skipWs();
-            const rhs = try s.parseOperandExpr(false);
+            const rhs = try s.parseOperandExpr(spaced_names);
             return .{ .cmp = .{ .op = o, .lhs = lhs, .rhs = rhs } };
         }
         s.pos = save;
         return .{ .operand = lhs };
     }
 
-    fn parseOperandExpr(s: *Scanner, no_filters: bool) Error!Expr {
-        const expr = try s.parseExpr(false);
-        if (no_filters) {
-            for (expr.terms) |t| {
-                if (t.filters.len != 0) {
-                    return s.err("filters are not allowed on the left side of a comparison", .{});
-                }
-            }
-        }
-        return expr;
+    /// One pipeline as a single-term Expr — `??` is the chain-level
+    /// combinator, so operands never hold multi-term chains.
+    fn parseOperandExpr(s: *Scanner, spaced_names: bool) Error!Expr {
+        const pipe = try s.parsePipelineInner(spaced_names, s.abs());
+        const terms = try s.p.alloc.alloc(Pipeline, 1);
+        terms[0] = pipe;
+        return .{ .terms = terms };
     }
 };
 

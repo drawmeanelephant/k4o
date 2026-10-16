@@ -141,3 +141,35 @@ Legend:
 impossible (`embed` — excluded), 74 implementable + regex engine. Weight concentrates in: typed-value
 engine rework, regex, date mini-language, arrow expressions, HTML tokenizer,
 JS float print.
+
+## 8. Landed semantics (implementation findings, post-spec)
+
+These were pinned by oracle probes during implementation:
+
+- **`??` binds below every boolean op.** `x ?? y == "z"` is
+  `x ?? (y == "z")` — terms are whole conditions; first truthy wins; when
+  none is truthy the LAST term's value renders (`{{ 0 }}` emits `0`).
+- **`{{ }}` takes the full boolean grammar** — `==`, `and`, `contains`,
+  `not`, parens — with filters banned on the left of a comparison
+  (`{{ x | bold == "b" }}` is a parse error; oracle agrees).
+- **Loop separator joins only non-empty iterations** — a loop whose
+  bodies emit nothing emits nothing (no `\n`s from `{% set %}` bodies).
+- **`set` scopes to the innermost loop frame** — `{% set n = i %}` inside
+  a `for` does not leak to the outer scope.
+- **Quoted index** — `xs["1"]` indexes arrays like `xs[1]`.
+- **`map` semantics** — non-array input passthrough; `map:"path"` → real
+  `null` for missing keys; `map:x => x.path` missing → the literal
+  `"undefined"` string (sentinel, not a primitive — `[undefined]`
+  serializes `["undefined"]` and does not unwrap); `x => x` renders the
+  variable name; arrow `${x.name}` inside a string body stays literal
+  (`${x}` alone substitutes); `x => ({k: v})` object construction.
+- **Singleton unwrap rule** — `{{ [prim] }}` unwraps only for
+  string/number/bool elements; `[null]`, `[[]]`, `[{}]` and the
+  `undefined` sentinel stay wrapped.
+- **`template` semantics** — `${path}` resolves nested props; `${str}`
+  is the item itself; arrays iterate with blank-line joins; `${arr}`
+  comma-joins; missing `${x}` → empty.
+- **CLI** — `render -t`/stdin/`--data-json`/`--set`/`-o`, `validate`,
+  `batch` (CSV/JSON-array/folder + `--filename`/`--overwrite`/`--dry-run`),
+  `help syntax|filters|tags|filter|tag` — implemented in `src/batch.zig`,
+  `src/help.zig`, `src/main.zig`; oracle docs embedded under `src/help/`.

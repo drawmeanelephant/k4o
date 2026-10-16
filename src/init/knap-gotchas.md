@@ -1,105 +1,167 @@
-<!-- k4o init knap-gotchas v4 -->
+<!-- k4o init knap-gotchas v5 -->
 # knap gotchas
 
 The sharp edges, in order of how often they bite. Everything here is
 verified behavior of the local `k4o` engine — not folklore.
 
-## Nested loops multiply
+## `{{ a or b }}` silently reads a variable named "a or b"
 
-A loop over N items runs its body N times, so L nested loops over
-N-element arrays render N^L times. Three nested loops over 300-element
-arrays is 27 million iterations from three lines of template.
+Names inside `{{ }}` may contain spaces, so after a bare name the parser
+keeps joining words — `and`, `or` and `contains` included:
 
-`k4o render` caps output at 256 MiB by default and fails with a diagnostic
-naming the loop depth instead of exhausting memory:
-
-```sh
-k4o render t.knap --data d.json --max-output=64m   # k/m/g suffix, 0 = no cap
+```text
+{{ a or b }}            a variable literally named "a or b" — usually
+                        missing, so it renders EMPTY with no error
+{{ a contains "x" }}    syntax error ("a contains" is the name)
+{{ a && b }}            works — symbols are not name characters
+{{ a == 1 and b }}      works — a comparison ends the operand
+{{ not a }}             works — `not`/`!` at the front is fine
 ```
 
-## Whitespace: what is eaten, what is kept
+Inside parentheses the same rule applies: `{{ (a or b) }}` still reads
+the name "a or b". In `{% if %}` conditions all word forms are safe —
+spaced names are an output-tag feature only. Rule of thumb: in `{{ }}`,
+use the symbolic operators.
 
-- One newline immediately after an opening tag (`{% if %}`, `{% elseif %}`,
-  `{% else %}`, `{% for %}`) is consumed — once. A second newline stays.
-- The newline before a closing tag (`{% endif %}`, `{% endfor %}`) is
-  **kept**. If your output has a stray blank line, look here first.
-- In Markdown/GFM output, loop iterations join with a newline and one
-  body-final newline is removed, so `{% for x in xs %}{{ x }}\n{% endfor %}`
-  does not grow blank lines between items.
-- `{%- … -%}` whitespace-control operators are not in the subset; they are
-  a syntax error.
+## `{{- -}}` and `{%- -%}` are rejected
 
-## Filter arguments: bare vs quoted
+`knap help syntax` documents dash whitespace trimming, but the 0.6.0 CLI
+rejects it (`PARSE_ERROR`) — k4o matches the oracle, not the docs. Use
+standalone lines and inline tags; the whitespace model below is the
+control you actually get.
 
-`link:url` resolves the top-level data key `url` and falls back to the
-literal word `url` only when no such key exists. `link:"url"` is always the
-literal. Only top-level keys resolve — `link:a.b` is a syntax error. A bare
-key holding `null`, an object or an array is a bad-argument error, not a
-silent fallback.
+## `??` binds looser than everything — and falls through to the last term
 
-## `link` refuses scripts, not navigation
+```text
+{{ x ?? y == "z" }}     means x ?? (y == "z") — a truthy x wins as itself,
+                        otherwise the comparison's true/false renders
+{{ a ?? b ?? c }}       all falsy → renders c's falsy value ("", 0, false)
+{{ t ?? "D" | upper }}  the filter binds to "D" only — {% set %} first
+                        if the winner should carry the filter
+```
 
-`javascript:`, `vbscript:` and `data:` (any case) are refused because they
-execute in a renderer. `http:`, `https:`, `mailto:`, `ftp:`, `file:` and
-relative paths pass. The URL must not contain whitespace, ASCII control
-characters or `"`, and must not start with `<`; the link text must not
-contain `"`.
+## Filters cannot sit left of a comparison
 
-## Truthiness surprises
+`{{ x | upper == "Y" }}` is a syntax error anywhere a condition lives —
+`{% if %}`, `{% set %}` and `{{ }}` alike. Filter the right side:
+`{{ x == y | upper }}`.
 
-`0`, `""`, `[]`, `null` and missing values are all falsy; `{}` (empty
-object) is **truthy**. Comparisons: `==`/`!=` are structural (objects and
-arrays compare member-wise, key order irrelevant); `<` `<=` `>` `>=` work
-on two numbers or two strings only — anything else is simply not ordered.
+## Singleton arrays unwrap to their element
 
-## Structured values render as JSON
+`{{ ["a"] }}` prints `a`, `{{ [7] }}` prints `7`. The unwrap happens at
+interpolation for a one-element array holding a primitive (null and
+containers stay arrays). Filters that stringify see the element too;
+collection filters still see the array.
 
-`{{ data }}` with an object or array emits compact JSON, key order
-preserved from the input. Reach for the field instead: `{{ data.k }}`.
+## Strings holding JSON get re-parsed by filters
 
-## Floats are lossy
+A pipeline value that is a *string* containing a JSON array or object
+(`"[1,2]"`, `'{"a":1}'`) is parsed into a real value before a filter
+runs — `{{ s | length }}` on `"[1,2]"` counts 2, not 5 characters. The
+rule exists so serialized collections chain; it also means data that
+happens to look like JSON is silently retyped. `parse_json` makes the
+same conversion explicit.
 
-`{"a":2.0}` renders as `2`: scalar interpolation emits a whole-number float
-and the equal integer as the same bytes. Numeric equality does not recover
-the distinction — it compares the numeric value, not the integer/float
-representation — so `{% if a == 2 %}` is true for both `2` and `2.0`.
+## Containers compare by identity, not structure
 
-## Phrase filters take one line
+`==`, `!=` and `contains` on arrays/objects ask "same node?", not "same
+contents?":
 
-`h1`–`h6`, `bold`, `italic`, `code`, `blockquote`, `link` require
-single-line text; a value with a newline is a render error. Use `codeblock`
-for multiline content.
+```text
+{"a":[1],"b":[1]}  →  {{ a == b }}   is false — two nodes, same bytes
+{% set s = a %}    →  {{ s == a }}   is true  — one node, two names
+```
 
-## Codeblock content with blank lines emits `bc..`
+Numbers compare by value (`2 == 2.0` is true), strings by text. To test
+container contents, compare a property: `{{ a[0] == b[0] }}`.
 
-Textile's single-block `bc.` signature ends at the first blank line, so
-`codeblock` content with a blank line and more content after it is emitted
-with the extended `bc..` signature instead — that form holds until the next
-block signature or the end of input, keeping the tail inside the code block.
-The same rule means template text directly after such a code block is
-absorbed into it unless that text starts with a block signature
-(`p. `, `h2. `, `bq. `, …). Content without blank lines keeps `bc. `.
+## `{% set %}` inside a loop outlives the iteration
 
-## Lists and tables need arrays
+A `set` writes to the innermost loop's scope — shared across every
+iteration of that loop, dropped at `{% endfor %}`:
 
-`list`/`numbered`/`table` on a non-array is a render error. List nesting
-beyond 3 levels is an error. Table rows must share one cell count, and
-cells must not contain `|` or newlines.
+```text
+{% for i in xs %}{% if i == 1 %}{% set c = "one" %}{% endif %}{{ c }}{% endfor %}
+→ c reads "one" in iteration 2 as well; outside the loop c is missing
+```
 
-## Comments are removed, never evaluated
+`{% if %}` does not open a scope — a set in an if-branch lands in the
+enclosing scope (the loop's, or the globals).
 
-`{# … #}` can span lines and its contents are not parsed as template. An
-unclosed `{#` is a syntax error.
+## `--set key=value` stores strings
 
-## Missing values are safe
+`k4o render t.knap --set draft=true` puts the *string* `"true"` over the
+data key — truthy like `true`, but `{{ draft == true }}` is false.
+Repeatable; overrides only top-level keys; needs a JSON-object data root.
+For typed values use `--data-json`.
 
-Absent paths render empty and are falsy in conditions — they never throw.
-Guard with `{% if optional %}` when absence means something different from
-empty.
+## Whitespace: the rules that move bytes
 
-## k4o's names differ from knap 0.6.0
+- A line of only whitespace plus `{% %}`/`{# #}` tags renders nothing —
+  tag and newline both go. This is why logic on its own lines is free.
+- An inline opener eats the body's leading spaces/tabs on the same line
+  once: `{% if x %}  hi{% endif %}` → `hi`.
+- The newline after `{% endif %}`/`{% endfor %}` is real output.
+- `{% endfor %}` at column 0 eats the newline ending the line before it
+  (`…{{ i }}\n{% endfor %}` ends clean); indented `{% endfor %}` keeps
+  that whitespace inside the body — it lands between iterations.
+- Loop iterations join with ONE `\n` separator, emitted only when the
+  body produced output; the loop also trims trailing spaces/tabs once.
+- The newline before a standalone `{% elseif %}`/`{% else %}`/`{% endif %}`
+  is consumed — branches join tight.
 
-`codeblock` (knap: `code_block`) and `numbered` (knap: `list:numbered`);
-k4o's `link` takes text as input and the URL as argument (knap: the
-reverse). The official knap CLI will reject k4o-style templates for these —
-trust `k4o lint` for what runs in the local binary.
+## `link` orientation: value is the URL, argument is the text
+
+`{{ url | link:"Example" }}` → `[Example](https://…)`, and with no
+argument the label is `link`. Arrays give one link per line; objects map
+`key=URL` → `value=text`. `image` works the same way (`![alt](url)`).
+`javascript:`, `vbscript:` and `data:` are refused — even spelled with
+character references (`javascript&colon;…`, `&#106;avascript:…`), which
+a CommonMark renderer would resolve.
+
+## Missing values are safe — most things are not
+
+Absent paths render empty and are falsy; `{% for i in missing %}`
+iterates nothing. But a `for` over a *present* non-array is a render
+error, and so is `list`/`table` on a scalar or `link` on a non-URL input,
+etc. Errors are buffered: stdout stays empty, stderr gets the diagnostic,
+exit is 1.
+
+## Truthiness and `{}`
+
+`false`, `null`, missing, `""`, `0`, `[]` are falsy; `{}` is TRUTHY —
+an empty object is a real value. Comparisons `<` `<=` `>` `>=` order two
+numbers or two strings only; anything else is simply not ordered (the
+condition is false, no error).
+
+## Numbers print JavaScript-style
+
+`2.0` renders `2`; `1e21` in data renders `1e+21` — the f64 printer uses
+JS `Number.toString` rules, and a number that only fits in a double (past
+the i64 range, or a float literal) can lose precision like a JS double.
+`length`, `slice` and `reverse` count UTF-16 code units — an astral emoji
+is 2 units, and a `slice` that cuts a surrogate pair re-encodes as `�`.
+
+## Batch filenames are basenames, sanitized
+
+`k4o batch --filename '{{ title | safe_name }}.md'` renders the name per
+row, then trims whitespace and refuses anything containing `/` or `\`,
+or made only of spaces, dots, dashes and underscores (that row's batch
+fails, naming the offending name). Duplicate output names always fail;
+`--overwrite` only governs pre-existing files on disk. Default names:
+`N.md` (1-based) for CSV/JSON rows, `<stem>.md` for folder records.
+
+## Blocked filters error at render
+
+`embed`, `html_to_json` and `remove_html` are registered but need a host
+(DOM APIs, a vault resolver) an embeddable engine does not have — they
+fail the render with a diagnostic, and `k4o lint` flags them ahead of
+time. `validate` cannot catch them (it only parses).
+
+## Comments end at the first `#}`
+
+`{# a #} b #}` — the second `#}` is literal text. Comments do not nest
+and an unclosed `{#` is a syntax error. A comment removes only its own
+bytes: `{# gone #}` alone on a line leaves the indentation and the
+newline behind — a blank line. Put comments inline, or share the line
+with a `{% %}` tag to keep output clean.

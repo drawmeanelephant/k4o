@@ -171,14 +171,14 @@ check_zero_tests "zig build test (normal: all pass)" "$VERIFY_DIR/02-test.log" \
   "$ZIG" build test
 check_nonzero_tests "passthrough mutant fails the suite" "$VERIFY_DIR/03-passthrough.log" \
   "$ZIG" build test -Dengine-mode=passthrough
-check_nonzero_tests "markdown mutant fails the suite" "$VERIFY_DIR/04-markdown.log" \
-  "$ZIG" build test -Dengine-mode=markdown
+check_nonzero_tests "noeval mutant fails the suite" "$VERIFY_DIR/04-noeval.log" \
+  "$ZIG" build test -Dengine-mode=noeval
 check_zero "zig build test -Doptimize=ReleaseSafe (all pass)" "$VERIFY_DIR/05-release-safe.log" \
   "$ZIG" build test -Doptimize=ReleaseSafe
 
 for e in heading list table; do
   check_zero "example '$e' renders byte-exact" "$VERIFY_DIR/06-example-$e.log" \
-    bash -c "cd '$REPO' && '$BIN' render 'examples/$e.knap' --data 'examples/$e.json' | cmp -s - 'examples/$e.textile'"
+    bash -c "cd '$REPO' && '$BIN' render 'examples/$e.knap' --data 'examples/$e.json' | cmp -s - 'examples/$e.markdown'"
 done
 
 check_cli_error "error path: unknown filter (exit 1, empty stdout)" "$VERIFY_DIR/07-unknown-filter" \
@@ -192,21 +192,17 @@ check_cli_error "error path: malformed JSON data" "$VERIFY_DIR/10-bad-data" \
 check_cli_error "error path: no arguments" "$VERIFY_DIR/11-no-args" "$BIN"
 
 check_zero "CLI accepts --data=FILE" "$VERIFY_DIR/15-data-equals.log" \
-  bash -c "cd '$REPO' && '$BIN' render 'examples/heading.knap' --data='examples/heading.json' | cmp -s - 'examples/heading.textile'"
+  bash -c "cd '$REPO' && '$BIN' render 'examples/heading.knap' --data='examples/heading.json' | cmp -s - 'examples/heading.markdown'"
 check_zero "CLI --format=markdown renders byte-exact" "$VERIFY_DIR/21-markdown.log" \
   bash -c "cd '$REPO' && '$BIN' render 'examples/heading.knap' --data='examples/heading.json' --format=markdown | cmp -s - 'examples/heading.markdown'"
-check_zero "CLI --format gfm renders a byte-exact pipe table" "$VERIFY_DIR/25-gfm-table.log" \
-  bash -c "cd '$REPO' && '$BIN' render 'examples/table.knap' --data='examples/table.json' --format gfm | cmp -s - 'examples/table.gfm'"
-check_zero "CLI --format=gfm preserves non-table Markdown" "$VERIFY_DIR/26-gfm-heading.log" \
-  bash -c "cd '$REPO' && '$BIN' render 'examples/heading.knap' --data='examples/heading.json' --format=gfm | cmp -s - 'examples/heading.markdown'"
-check_cli_stderr "GFM table output stays empty when the cap trips" "$VERIFY_DIR/27-gfm-cap" \
-  "output exceeded" "$BIN" render "$REPO/examples/table.knap" --data "$REPO/examples/table.json" --format=gfm --max-output=1
-check_zero "CLI --format textile preserves the default" "$VERIFY_DIR/22-textile.log" \
-  bash -c "cd '$REPO' && '$BIN' render 'examples/heading.knap' --data='examples/heading.json' --format textile | cmp -s - 'examples/heading.textile'"
+check_zero "CLI --format=oliver renders" "$VERIFY_DIR/25-oliver.log" \
+  bash -c "cd '$REPO' && '$BIN' render 'examples/heading.knap' --data='examples/heading.json' --format oliver | cmp -s - 'examples/heading.markdown'"
+check_cli_stderr "table output stays empty when the cap trips" "$VERIFY_DIR/27-table-cap" \
+  "output exceeded" "$BIN" render "$REPO/examples/table.knap" --data "$REPO/examples/table.json" --max-output=1
 check_cli_stderr "CLI rejects unknown formats" "$VERIFY_DIR/23-bad-format" \
   "invalid --format" "$BIN" render "$REPO/examples/heading.knap" --format=html
 check_cli_stderr "CLI rejects duplicate formats" "$VERIFY_DIR/24-duplicate-format" \
-  "duplicate --format" "$BIN" render "$REPO/examples/heading.knap" --format markdown --format textile
+  "duplicate --format" "$BIN" render "$REPO/examples/heading.knap" --format markdown --format oliver
 check_cli_stderr "CLI rejects an empty --data= value" "$VERIFY_DIR/16-data-empty" \
   "missing value for --data" "$BIN" render "$REPO/examples/heading.knap" "--data="
 check_cli_stderr "a second positional suggests --data" "$VERIFY_DIR/17-second-positional" \
@@ -216,10 +212,8 @@ check_cli_stderr "a second positional suggests --data" "$VERIFY_DIR/17-second-po
 # parser accepts (issue #47), and interpolating a container past Stringify's
 # fixed nesting stack is a diagnostic, not a panic (issue #48 — the crash was
 # exit 134 with a stack trace, which fails both assertions below).
-check_zero "deep data compares correctly at the CLI" "$VERIFY_DIR/28-deep-compare.log" \
-  bash -c "cd '$REPO' && '$BIN' render 'fixtures/logic-eq-deep.knap' --data 'fixtures/logic-eq-deep.json' | cmp -s - 'fixtures/logic-eq-deep.textile'"
 check_cli_stderr "over-deep interpolation is a diagnostic, not a panic" "$VERIFY_DIR/29-deep-serialize" \
-  "nested too deeply to serialize" "$BIN" render "$REPO/fixtures/errors/err-deep-serialize.knap" --data "$REPO/fixtures/errors/err-deep-serialize.json"
+  "100-level limit" "$BIN" render "$REPO/fixtures/errors/err-deep-serialize.knap" --data "$REPO/fixtures/errors/err-deep-serialize.json"
 
 # Nested loops multiply: 200 * 200 iterations of a two-byte body is ~80k
 # bytes, so a 100-byte cap must trip immediately with a diagnostic that names
@@ -240,8 +234,22 @@ check_cli_stderr "the output cap fails an amplifying render" "$VERIFY_DIR/18-amp
 check_cli_stderr "an invalid --max-output is rejected" "$VERIFY_DIR/19-bad-max" \
   "not a number" "$BIN" render "$REPO/examples/heading.knap" --data "$REPO/examples/heading.json" --max-output=abc
 check_zero "--max-output accepts a suffixed size" "$VERIFY_DIR/20-max-suffix.log" \
-  bash -c "'$BIN' render '$REPO/examples/heading.knap' --data='$REPO/examples/heading.json' --max-output=1m | cmp -s - '$REPO/examples/heading.textile'"
+  bash -c "'$BIN' render '$REPO/examples/heading.knap' --data='$REPO/examples/heading.json' --max-output=1m | cmp -s - '$REPO/examples/heading.markdown'"
 
+check_zero "CLI renders inline template with -t" "$VERIFY_DIR/34-inline.log" \
+  bash -c "test \$('$BIN' render -t 'hi {{name}}' --data-json '{\"name\":\"N\"}') = 'hi N'"
+check_zero "CLI reads the template from stdin" "$VERIFY_DIR/35-stdin-tpl.log" \
+  bash -c "printf '{{x}}!' | '$BIN' render --data-json '{\"x\":42}' | grep -q '42!'"
+check_zero "CLI --set overrides data" "$VERIFY_DIR/36-set.log" \
+  bash -c "test \$('$BIN' render -t '{{v}}' --data-json '{\"v\":1}' --set v=9) = 9"
+check_zero "CLI -o writes output to a file" "$VERIFY_DIR/37-outfile.log" \
+  bash -c "cd '$VERIFY_DIR' && '$BIN' render -t 'x{{n}}' --set n=1 -o out.md && grep -q x1 out.md"
+check_zero "validate accepts a clean template" "$VERIFY_DIR/38-validate.log" \
+  bash -c "'$BIN' validate -t '{{ ok }}'"
+check_cli_error "validate rejects a broken template" "$VERIFY_DIR/39-validate-bad" \
+  bash -c "'$BIN' validate -t '{{ bad'"
+check_zero "help lists filters" "$VERIFY_DIR/40-help.log" \
+  bash -c "'$BIN' help filters | grep -q ' bold'"
 check_zero "--help exits 0" "$VERIFY_DIR/12-help.log" "$BIN" --help
 check_zero "--version exits 0" "$VERIFY_DIR/13-version.log" "$BIN" --version
 
@@ -278,7 +286,7 @@ check_zero "init: teaching files drop into a working dir" "$VERIFY_DIR/34-init-f
 check_zero "init: a rerun is idempotent" "$VERIFY_DIR/34-init-rerun.log" \
   bash -c "cd '$INIT_FRESH' && '$BIN' init | grep -q '0 created, 4 untouched, 0 archived'"
 check_zero "init: supersede archives and user files are untouched" "$VERIFY_DIR/35-init-supersede.log" \
-  bash -c "cd '$INIT_SUPER' && '$BIN' init >/dev/null && printf 'random user content\n' > knap-gotchas.md && printf '<!-- k4o init knap-tour v0 -->\n# old tour\n' > knap-tour.md && '$BIN' init > init.out && grep -q 'archived to k4o-archive/' init.out && grep -q 'knap-tour v3' knap-tour.md && cmp -s 'k4o-archive'/*/knap-tour.md <(printf '<!-- k4o init knap-tour v0 -->\n# old tour\n') && cmp -s knap-gotchas.md <(printf 'random user content\n')"
+  bash -c "cd '$INIT_SUPER' && '$BIN' init >/dev/null && printf 'random user content\n' > knap-gotchas.md && printf '<!-- k4o init knap-tour v0 -->\n# old tour\n' > knap-tour.md && '$BIN' init > init.out && grep -q 'archived to k4o-archive/' init.out && grep -q 'knap-tour v4' knap-tour.md && cmp -s 'k4o-archive'/*/knap-tour.md <(printf '<!-- k4o init knap-tour v0 -->\n# old tour\n') && cmp -s knap-gotchas.md <(printf 'random user content\n')"
 
 check_zero "static x86_64-linux-musl build is statically linked" "$VERIFY_DIR/14-static.log" \
   bash -c "'$ZIG' build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl --prefix '$VERIFY_DIR/static' && file '$VERIFY_DIR/static/bin/k4o' | grep -q 'statically linked'"

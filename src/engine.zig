@@ -218,16 +218,72 @@ pub const Interp = struct {
         }
     }
 
-    fn evalOutput(self: *Interp, expr: parse.Expr) Error!void {
-        const value = try self.evalExpr(expr);
+    fn evalOutput(self: *Interp, chain: parse.Chain) Error!void {
+        const value = try self.evalChain(chain, 0);
         try self.writeValue(value);
+    }
+
+    /// First truthy term wins and contributes its value — `a ?? b == c`
+    /// is `a ?? (b == c)`, so a truthy `a` yields `a`, not a bool.
+    /// Falls back to null when every term is falsy.
+    fn boolValue(self: *Interp, b: bool) Error!*const std.json.Value {
+        const v = try self.alloc.create(std.json.Value);
+        v.* = .{ .bool = b };
+        return v;
+    }
+
+    fn evalChain(self: *Interp, chain: parse.Chain, offset: usize) Error!*const std.json.Value {
+        var depth: u32 = 0;
+        for (chain.terms) |term| {
+            depth = @max(depth, condDepth(term));
+        }
+        if (depth > max_eval_depth) {
+            return diag.fail(
+                self.alloc,
+                self.diag,
+                .render,
+                self.template,
+                offset,
+                "condition expression is nested too deeply to evaluate (max {d} levels)",
+                .{max_eval_depth},
+            );
+        }
+        var last: ?*const std.json.Value = null;
+        for (chain.terms) |term| {
+            switch (term) {
+                .operand => |e| {
+                    const v = try self.evalExpr(e);
+                    if (truthy(v.*)) return v;
+                    last = v;
+                },
+                else => {
+                    const b = try self.evalCond(term, offset);
+                    const v = try self.boolValue(b);
+                    if (b) return v;
+                    last = v;
+                },
+            }
+        }
+        // No term was truthy — the chain falls back to its last term.
+        return last orelse self.nullValue();
+    }
+
+    /// Conservative depth pre-scan for evalChain — the chain's own budget
+    /// mirrors evalCondDepth's guard.
+    fn condDepth(cond: parse.Cond) u32 {
+        return switch (cond) {
+            .operand, .cmp => 1,
+            .neg => |inner| 1 + condDepth(inner.*),
+            .and_ => |ab| 1 + @max(condDepth(ab.lhs.*), condDepth(ab.rhs.*)),
+            .or_ => |ab| 1 + @max(condDepth(ab.lhs.*), condDepth(ab.rhs.*)),
+        };
     }
 
     /// `{% set name = expr %}` — ordered assignment into the innermost
     /// scope (inside a loop that is the current iteration's scope; `{% if %}`
     /// does not open a scope).
     fn evalSet(self: *Interp, sn: parse.SetNode) Error!void {
-        const value = try self.evalExpr(sn.expr);
+        const value = try self.evalChain(sn.expr, sn.offset);
         const scope = self.currentScope();
         try scope.put(self.alloc, sn.name, value);
     }
@@ -241,8 +297,8 @@ pub const Interp = struct {
 
     fn evalIf(self: *Interp, chain: parse.IfChain) Error!void {
         for (chain.branches) |branch| {
-            if (branch.cond) |cond| {
-                if (try self.evalCond(cond, branch.offset)) {
+            if (branch.cond) |cond_chain| {
+                if (truthy((try self.evalChain(cond_chain, branch.offset)).*)) {
                     try self.evalNodes(branch.body);
                     return;
                 }
@@ -280,10 +336,14 @@ pub const Interp = struct {
         };
         try self.loops.append(self.alloc, frame);
         defer _ = self.loops.pop();
+        // Iterations separate with a newline, but the separator only
+        // materializes when something precedes it — a loop whose bodies
+        // emit nothing (`{% set %}`-only, empty arrays) emits nothing.
+        const loop_start = self.out.written().len;
         var i: usize = 0;
         while (i < arr.items.len) : (i += 1) {
             self.loops.items[self.loops.items.len - 1].index = i;
-            if (i > 0) try self.put("\n");
+            if (i > 0 and self.out.written().len > loop_start) try self.put("\n");
             // A standalone `{% for %}` strips the body's leading
             // spaces/tabs once — on the first emitted iteration. When the
             // run reaches a newline the newline goes with it.
@@ -376,8 +436,16 @@ pub const Interp = struct {
     }
 
     /// A missing/null scalar: used where knap reads `undefined`.
-    fn nullValue(self: *Interp) error{OutOfMemory}!*const std.json.Value {
+    pub fn nullValue(self: *Interp) error{OutOfMemory}!*const std.json.Value {
         return self.make(.{ .null = {} });
+    }
+
+    /// The oracle's arrow sentinel — a missing `x => x.path` step renders
+    /// as the literal string `"undefined"`. It is not a string primitive:
+    /// it serializes quoted inside arrays but does not unwrap a singleton,
+    /// matching the oracle's `["undefined"]`.
+    fn undefinedValue(self: *Interp) error{OutOfMemory}!*const std.json.Value {
+        return self.make(.{ .number_string = "undefined" });
     }
 
     fn resolvePath(self: *Interp, path: parse.Path) Error!*const std.json.Value {
@@ -428,6 +496,11 @@ pub const Interp = struct {
             switch (step) {
                 .key => |k| value = switch (value.*) {
                     .object => |obj| obj.getPtr(k) orelse return self.nullValue(),
+                    .array => |arr| blk: {
+                        // `xs["1"]` indexes the array like `xs[1]` does.
+                        const idx = std.fmt.parseInt(u64, k, 10) catch return self.nullValue();
+                        break :blk if (idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue();
+                    },
                     else => return self.nullValue(),
                 },
                 .index => |idx| value = switch (value.*) {
@@ -502,10 +575,15 @@ pub const Interp = struct {
             switch (part) {
                 .text => |t| try out.appendSlice(self.alloc, t),
                 .path => |p| {
-                    const v = try self.resolveArrowPath(p, var_name, item);
-                    switch (v.*) {
-                        .null => {},
-                        else => try out.appendSlice(self.alloc, try filters.jsToString(self.alloc, v)),
+                    // `${x}` substitutes the item; `${x.name}` stays
+                    // literal — arrow strings interpolate only the bare
+                    // variable (the oracle emits `${x.name}` verbatim).
+                    if (std.mem.eql(u8, p.root, var_name) and p.steps.len == 0) {
+                        try out.appendSlice(self.alloc, try filters.jsToString(self.alloc, item));
+                    } else {
+                        try out.appendSlice(self.alloc, "${");
+                        try out.appendSlice(self.alloc, try self.pathText(p));
+                        try out.appendSlice(self.alloc, "}");
                     }
                 },
             }
@@ -514,34 +592,37 @@ pub const Interp = struct {
     }
 
     /// A path rooted at the arrow variable walks the item; anything else
-    /// resolves through the normal scope chain.
+    /// resolves through the normal scope chain. `x` alone is the
+    /// variable's name text (`x => x` renders `"x"` in the oracle), and a
+    /// missing step is the literal `"undefined"`, not null.
     fn resolveArrowPath(self: *Interp, path: parse.Path, var_name: []const u8, item: *const std.json.Value) Error!*const std.json.Value {
         if (!std.mem.eql(u8, path.root, var_name)) return self.resolvePath(path);
+        if (path.steps.len == 0) return self.make(.{ .string = var_name });
         var value = item;
         for (path.steps) |step| {
             value = switch (step) {
                 .key => |k| switch (value.*) {
-                    .object => |obj| obj.getPtr(k) orelse return self.nullValue(),
-                    else => return self.nullValue(),
+                    .object => |obj| obj.getPtr(k) orelse return self.undefinedValue(),
+                    else => return self.undefinedValue(),
                 },
                 .index => |idx| switch (value.*) {
-                    .array => |arr| if (idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue(),
-                    else => return self.nullValue(),
+                    .array => |arr| if (idx < arr.items.len) &arr.items[@intCast(idx)] else return self.undefinedValue(),
+                    else => return self.undefinedValue(),
                 },
                 .expr => |pipe| blk: {
                     const key = try self.evalPipeline(pipe.*);
                     break :blk switch (key.*) {
                         .string => |k| switch (value.*) {
-                            .object => |obj| obj.getPtr(k) orelse return self.nullValue(),
+                            .object => |obj| obj.getPtr(k) orelse return self.undefinedValue(),
                             .array => |arr| inner: {
-                                const idx = std.fmt.parseInt(u64, k, 10) catch return self.nullValue();
-                                break :inner if (idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue();
+                                const idx = std.fmt.parseInt(u64, k, 10) catch return self.undefinedValue();
+                                break :inner if (idx < arr.items.len) &arr.items[@intCast(idx)] else return self.undefinedValue();
                             },
-                            else => return self.nullValue(),
+                            else => return self.undefinedValue(),
                         },
                         .integer => |idx| switch (value.*) {
-                            .array => |arr| if (idx >= 0 and idx < arr.items.len) &arr.items[@intCast(idx)] else return self.nullValue(),
-                            else => return self.nullValue(),
+                            .array => |arr| if (idx >= 0 and idx < arr.items.len) &arr.items[@intCast(idx)] else return self.undefinedValue(),
+                            else => return self.undefinedValue(),
                         },
                         else => return self.nullValue(),
                     };
@@ -634,9 +715,18 @@ pub const Interp = struct {
             .string => |s| try self.put(s),
             .array => |arr| {
                 if (arr.items.len == 1) {
-                    switch (arr.items[0]) {
-                        .bool, .integer, .float, .number_string, .string => {
-                            const single = try self.make(arr.items[0]);
+                    const elem = arr.items[0];
+                    const is_undefined = elem == .number_string and
+                        std.mem.eql(u8, elem.number_string, "undefined");
+                    switch (elem) {
+                        // The undefined sentinel stays wrapped — `[undefined]`
+                        // renders `["undefined"]`, not `undefined`.
+                        .bool, .integer, .float, .string => {
+                            const single = try self.make(elem);
+                            return self.writeValue(single);
+                        },
+                        .number_string => if (!is_undefined) {
+                            const single = try self.make(elem);
                             return self.writeValue(single);
                         },
                         else => {},
@@ -671,6 +761,10 @@ pub const Interp = struct {
             .integer => |i| w.print("{d}", .{i}) catch return error.OutOfMemory,
             .float => |f| w.writeAll(try jsFloat(self.alloc, f)) catch return error.OutOfMemory,
             .number_string => |s| {
+                if (std.mem.eql(u8, s, "undefined")) {
+                    try jsWriteString(w, s);
+                    return;
+                }
                 const f = std.fmt.parseFloat(f64, s) catch 0;
                 w.writeAll(try jsFloat(self.alloc, f)) catch return error.OutOfMemory;
             },

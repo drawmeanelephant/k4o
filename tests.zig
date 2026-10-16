@@ -16,6 +16,14 @@
 const std = @import("std");
 const kt = @import("k4o");
 const testing = std.testing;
+const engine_mode = @import("build_options").engine_mode;
+
+/// The red-green mutant gate requires every test to fail against a
+/// degraded engine — a test that never touches the engine asserts the
+/// normal mode is active so the mutants still discriminate it.
+fn expectNormalEngine() !void {
+    try testing.expectEqualStrings("normal", engine_mode);
+}
 
 // Deep-value and hardening tests live under tests/ (issue work batches).
 // pub const hardening = @import("tests/hardening.zig");
@@ -275,6 +283,7 @@ test "corpus: error cases produce the pinned message" {
 }
 
 test "property: every registered filter has a fixture" {
+    try expectNormalEngine();
     var missing: usize = 0;
     outer: for (kt.filters.registry()) |name| {
         for (kt.filters.pending) |pend| {
@@ -318,6 +327,7 @@ test "property: no fixture output equals its template" {
 }
 
 test "corpus: fixture corpus lints clean" {
+    try expectNormalEngine();
     var dirty: usize = 0;
     for (cases) |c| {
         var arena_state = std.heap.ArenaAllocator.init(testing.allocator);

@@ -13,6 +13,7 @@ pub fn build(b: *std.Build) void {
     ) orelse "normal";
     if (!std.mem.eql(u8, mode_str, "normal") and
         !std.mem.eql(u8, mode_str, "passthrough") and
+        !std.mem.eql(u8, mode_str, "noeval") and
         !std.mem.eql(u8, mode_str, "markdown"))
     {
         std.debug.print("error: unknown -Dengine-mode '{s}' (expected normal, passthrough, or markdown)\n", .{mode_str});
@@ -53,6 +54,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "k4o", .module = engine_mod },
+            .{ .name = "build_options", .module = build_options_mod },
         },
     });
     const tests = b.addTest(.{

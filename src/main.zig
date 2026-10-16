@@ -115,8 +115,11 @@ const CommonOpts = struct {
     data_json: ?[]const u8 = null,
     output_path: ?[]const u8 = null,
     format: kt.Format = .markdown,
+    format_seen: bool = false,
     max_output: usize = kt.default_max_output,
     sets: std.ArrayList([2][]const u8) = .empty,
+    /// The specific complaint for a generic `error.Usage`.
+    err: []const u8 = "invalid option",
 
     const ParseError = error{ Usage, OutOfMemory };
 };
@@ -152,6 +155,10 @@ fn parseSharedOpt(
     } else if (std.mem.startsWith(u8, arg, "--data=") or std.mem.startsWith(u8, arg, "-d=")) {
         if (opts.data_path != null) return error.Usage;
         opts.data_path = arg[std.mem.indexOfScalar(u8, arg, '=').? + 1 ..];
+        if (opts.data_path.?.len == 0) {
+            opts.err = "missing value for --data";
+            return error.Usage;
+        }
     } else if (std.mem.eql(u8, arg, "--data-json")) {
         if (opts.data_json != null) return error.Usage;
         opts.data_json = next(args, i) catch return error.Usage;
@@ -179,7 +186,15 @@ fn parseSharedOpt(
                 return true;
             }
         }
-        opts.format = parseFormat(v) orelse return error.Usage;
+        opts.format = parseFormat(v) orelse {
+            opts.err = "invalid --format (expected markdown or oliver)";
+            return error.Usage;
+        };
+        if (opts.format_seen) {
+            opts.err = "duplicate --format";
+            return error.Usage;
+        }
+        opts.format_seen = true;
     } else if (std.mem.startsWith(u8, arg, "--format=")) {
         const v = arg["--format=".len..];
         if (batch_format != null) {
@@ -192,13 +207,27 @@ fn parseSharedOpt(
                 return true;
             }
         }
-        opts.format = parseFormat(v) orelse return error.Usage;
+        opts.format = parseFormat(v) orelse {
+            opts.err = "invalid --format (expected markdown or oliver)";
+            return error.Usage;
+        };
+        if (opts.format_seen) {
+            opts.err = "duplicate --format";
+            return error.Usage;
+        }
+        opts.format_seen = true;
     } else if (std.mem.eql(u8, arg, "--max-output") or std.mem.eql(u8, arg, "-m")) {
         const v = next(args, i) catch return error.Usage;
-        opts.max_output = parseSize(v) catch return error.Usage;
+        opts.max_output = parseSize(v) catch {
+            opts.err = "--max-output: not a number";
+            return error.Usage;
+        };
     } else if (std.mem.startsWith(u8, arg, "--max-output=") or std.mem.startsWith(u8, arg, "-m=")) {
         const v = arg[std.mem.indexOfScalar(u8, arg, '=').? + 1 ..];
-        opts.max_output = parseSize(v) catch return error.Usage;
+        opts.max_output = parseSize(v) catch {
+            opts.err = "--max-output: not a number";
+            return error.Usage;
+        };
     } else {
         return false;
     }
@@ -299,12 +328,14 @@ fn runRender(init: std.process.Init, args: [][]const u8) !u8 {
     var opts = CommonOpts{};
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
-        if (parseSharedOpt(init, args, &i, &opts, null) catch return usage(init, "invalid render option")) continue;
+        if (parseSharedOpt(init, args, &i, &opts, null) catch return usage(init, opts.err)) continue;
         const arg = args[i];
         if (arg.len > 1 and arg[0] == '-' and !std.mem.eql(u8, arg, "-")) {
             return usage(init, "unknown render option");
         }
-        if (opts.template_path != null) return usage(init, "multiple template files");
+        if (opts.template_path != null) {
+            return usage(init, "a second positional — did you mean --data <file>?");
+        }
         opts.template_path = arg;
     }
 
@@ -364,7 +395,7 @@ fn runValidate(init: std.process.Init, args: [][]const u8) !u8 {
     var opts = CommonOpts{};
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
-        if (parseSharedOpt(init, args, &i, &opts, null) catch return usage(init, "invalid validate option")) continue;
+        if (parseSharedOpt(init, args, &i, &opts, null) catch return usage(init, opts.err)) continue;
         const arg = args[i];
         if (arg.len > 1 and arg[0] == '-' and !std.mem.eql(u8, arg, "-")) {
             return usage(init, "unknown validate option");
@@ -403,7 +434,7 @@ fn runBatch(init: std.process.Init, args: [][]const u8) !u8 {
 
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
-        if (parseSharedOpt(init, args, &i, &opts, &source_format) catch return usage(init, "invalid batch option")) continue;
+        if (parseSharedOpt(init, args, &i, &opts, &source_format) catch return usage(init, opts.err)) continue;
         const arg = args[i];
         if (std.mem.eql(u8, arg, "--output-dir")) {
             i += 1;
@@ -601,7 +632,7 @@ fn runInit(init: std.process.Init, args: [][]const u8) !u8 {
             },
             .archived => {
                 archived += 1;
-                try w.interface.print("{s} superseded (v{d} -> v{d}); old copy archived to {s}\n", .{ r.file, r.disk_version.?, kt.init.set_version, r.archive_path.? });
+                try w.interface.print("{s} superseded (v{d} -> v{d}); old copy archived to {s}\n", .{ r.file, r.disk_version.?, r.to_version.?, r.archive_path.? });
             },
         }
     }

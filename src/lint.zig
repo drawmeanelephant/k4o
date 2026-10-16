@@ -413,10 +413,10 @@ fn walkNodes(
     for (nodes) |node| {
         switch (node) {
             .text => {},
-            .output => |expr| try walkExpr(alloc, template, expr, findings),
+            .output => |chain| try walkChain(alloc, template, chain, findings),
             .ifelse => |chain| {
                 for (chain.branches) |branch| {
-                    if (branch.cond) |cond| try walkCond(alloc, template, cond, findings);
+                    if (branch.cond) |bc| try walkChain(alloc, template, bc, findings);
                     try walkNodes(alloc, template, branch.body, findings);
                 }
             },
@@ -424,9 +424,18 @@ fn walkNodes(
                 try walkExpr(alloc, template, ln.list, findings);
                 try walkNodes(alloc, template, ln.body, findings);
             },
-            .set => |sn| try walkExpr(alloc, template, sn.expr, findings),
+            .set => |sn| try walkChain(alloc, template, sn.expr, findings),
         }
     }
+}
+
+fn walkChain(
+    alloc: std.mem.Allocator,
+    template: []const u8,
+    chain: parse.Chain,
+    findings: *std.ArrayList(Finding),
+) Error!void {
+    for (chain.terms) |cond| try walkCond(alloc, template, cond, findings);
 }
 
 fn walkCond(
