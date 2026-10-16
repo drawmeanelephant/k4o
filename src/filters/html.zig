@@ -803,24 +803,24 @@ fn mdHtml(it: *Interp, s: []const u8) Error![]const u8 {
 }
 
 /// One interleaved left-to-right pass for all paired inline markers —
-/// backtick code, `*`/`_`/`~~` emphasis, `~`/`^` word spans, `==`
-/// highlight — followed by marker-only reruns until stable. Emitted span
-/// content is verbatim: it is never rescanned inside the same pass, which
-/// is why `_a` survives inside `*...*` (the `_` was content by the time
-/// the scan reached it) while `*y*` inside `` `...` `` is stripped on the
-/// rerun (the code span emitted `x*y*z`, then a later pass pairs it).
-/// The `mm`/`m` empty close may not be followed by another marker, so
-/// `***x**` keeps a `*` while `***x***` loses all six.
+/// backtick code, `**`/`*`, `__`/`_`, `~~`/`~`, `^` super, `==`
+/// highlight — then marker-only reruns until stable. Emitted span
+/// content is verbatim inside the pass (which is why `_a` survives
+/// inside `*...*`), but later reruns rescan it — never re-opening empty
+/// single-`m` pairs, which is why `_...==**~..._` keeps `**` while
+/// `` `...x-****...` `` loses all four. A mid-run `m` (preceded by `m`)
+/// can only close on a run-ending marker, so `***x**` -> `*x` while
+/// `***x***` and `***x*` collapse fully.
 fn mdInline(it: *Interp, s: []const u8) Error![]const u8 {
     var cur = try mdInlinePass(it, s, .{ .code = true, .caret = true });
     while (true) {
-        const next = try mdInlinePass(it, cur, .{});
+        const next = try mdInlinePass(it, cur, .{ .nonempty = true });
         if (next.len == cur.len and std.mem.eql(u8, next, cur)) return cur;
         cur = next;
     }
 }
 
-const InlineCfg = struct { code: bool = false, caret: bool = false };
+const InlineCfg = struct { code: bool = false, caret: bool = false, nonempty: bool = false };
 
 fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]const u8 {
     var out = std.ArrayList(u8).empty;
@@ -836,34 +836,40 @@ fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]con
                 i = j + 1;
                 continue;
             }
-        } else if (c == '*' or c == '_') {
-            // `m[^m\n]*m`. A marker opened mid-run (preceded by m) can only
-            // close on a marker that ends its own run — `***x**` settles
-            // as `*xy`-style: `**` collapses, the residue `*` can't reach
-            // into the trailing run, and `**` there collapses on its own.
-            var j = i + 1;
-            while (j < s.len and s[j] != c and s[j] != '\n') j += 1;
-            if (j < s.len and s[j] == c and
-                (!(i > 0 and s[i - 1] == c) or j + 1 >= s.len or s[j + 1] != c))
-            {
-                try out.appendSlice(it.alloc, s[i + 1 .. j]);
-                i = j + 1;
-                continue;
+        } else if (c == '*' or c == '_' or c == '~') {
+            // `mm[^m\n]*mm` before `m[^m\n]*m` (`~` alone is `~\w+~`).
+            if (i + 1 < s.len and s[i + 1] == c) {
+                var j = i + 2;
+                while (j < s.len and s[j] != c and s[j] != '\n') j += 1;
+                if (j + 1 < s.len and s[j + 1] == c) {
+                    try out.appendSlice(it.alloc, s[i + 2 .. j]);
+                    i = j + 2;
+                    continue;
+                }
             }
-        } else if (c == '~' and i + 1 < s.len and s[i + 1] == '~') {
-            // `~~[^~\n]*~~`.
-            var j = i + 2;
-            while (j < s.len and s[j] != '~' and s[j] != '\n') j += 1;
-            if (j + 1 < s.len and s[j] == '~' and s[j + 1] == '~' and
-                (!(i > 0 and s[i - 1] == '~') or j + 2 >= s.len or s[j + 2] != '~'))
-            {
-                try out.appendSlice(it.alloc, s[i + 2 .. j]);
-                i = j + 2;
-                continue;
+            if (c == '~') {
+                var j = i + 1;
+                while (j < s.len and isNameStart(s[j])) j += 1;
+                if (j > i + 1 and j < s.len and s[j] == c) {
+                    try out.appendSlice(it.alloc, s[i + 1 .. j]);
+                    i = j + 1;
+                    continue;
+                }
+            } else {
+                var j = i + 1;
+                while (j < s.len and s[j] != c and s[j] != '\n') j += 1;
+                const post = i > 0 and s[i - 1] == c;
+                if (j < s.len and s[j] == c and
+                    (!post or j + 1 >= s.len or s[j + 1] != c) and
+                    (!cfg.nonempty or j > i + 1))
+                {
+                    try out.appendSlice(it.alloc, s[i + 1 .. j]);
+                    i = j + 1;
+                    continue;
+                }
             }
-        } else if (c == '~' or (cfg.caret and c == '^')) {
-            // `m\w+m` — word-char content only, so `^a b^` survives; `^`
-            // only runs in the first pass (`^^x^^` settles as `^x^`).
+        } else if (cfg.caret and c == '^') {
+            // `^\w+^` — first pass only; `^^x^^` settles as `^x^`.
             var j = i + 1;
             while (j < s.len and isNameStart(s[j])) j += 1;
             if (j > i + 1 and j < s.len and s[j] == c) {
@@ -877,9 +883,7 @@ fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]con
             var found = false;
             while (j + 1 < s.len) : (j += 1) {
                 if (s[j] == '\n') break;
-                if (s[j] == '=' and s[j + 1] == '=' and
-                    (!(i > 0 and s[i - 1] == '=') or j + 2 >= s.len or s[j + 2] != '='))
-                {
+                if (s[j] == '=' and s[j + 1] == '=') {
                     found = true;
                     break;
                 }
@@ -895,7 +899,6 @@ fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]con
     }
     return out.toOwnedSlice(it.alloc);
 }
-
 /// `^[-*+] ` — bullet markers drop marker plus exactly one space, and a
 /// task checkbox written as `[]`/`[x]`/`[ ]` plus its trailing space goes
 /// with it (but only inside the marker — `[x] a` elsewhere stays put).
