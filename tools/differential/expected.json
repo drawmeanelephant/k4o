@@ -1,310 +1,322 @@
 {
- "empty-template": {
-  "status": "ok",
-  "stdout": ""
- },
- "empty-data": {
-  "status": "ok",
-  "stdout": ""
- },
- "missing-variable": {
-  "status": "ok",
-  "stdout": "Before  after"
- },
- "plain-variable": {
-  "status": "ok",
-  "stdout": "Ada!"
- },
- "nested-variable": {
-  "status": "ok",
-  "stdout": "Note"
- },
- "if-true": {
-  "status": "ok",
-  "stdout": "A B C"
- },
- "if-false": {
-  "status": "ok",
-  "stdout": "A Z C"
- },
- "comment": {
-  "status": "ok",
-  "stdout": "A  B"
- },
- "comment-whitespace-marker": {
-  "status": "ok",
-  "stdout": "A  B"
- },
- "whitespace-inline": {
-  "status": "ok",
-  "stdout": "pre\nyes\npost"
- },
- "whitespace-loop": {
-  "status": "ok",
-  "stdout": "a\nb\nc"
- },
- "nested-loops": {
-  "status": "ok",
-  "stdout": "a;\nb;\nc;"
- },
- "empty-loop": {
-  "status": "ok",
-  "stdout": "AB"
- },
- "heading-1": {
-  "status": "ok",
-  "stdout": "# Title"
- },
- "heading-2": {
-  "status": "ok",
-  "stdout": "## Title"
- },
- "heading-3": {
-  "status": "ok",
-  "stdout": "### Title"
- },
- "heading-4": {
-  "status": "ok",
-  "stdout": "#### Title"
- },
- "heading-5": {
-  "status": "ok",
-  "stdout": "##### Title"
- },
- "heading-6": {
-  "status": "ok",
-  "stdout": "###### Title"
- },
- "bold-word": {
-  "status": "ok",
-  "stdout": "**watch out**"
- },
- "italic-word": {
-  "status": "ok",
-  "stdout": "*very*"
- },
- "code-word": {
-  "status": "ok",
-  "stdout": "`zig build`"
- },
- "code-backtick": {
-  "status": "ok",
-  "stdout": "``a`b``"
- },
- "blockquote": {
-  "status": "ok",
-  "stdout": "> A quote"
- },
- "list-basic": {
-  "status": "ok",
-  "stdout": "- red\n- blue"
- },
- "list-empty": {
-  "status": "ok",
-  "stdout": ""
- },
- "list-nested": {
-  "status": "ok",
-  "stdout": "- red\n\t- blue\n\t- green"
- },
- "chain-italic-heading": {
-  "status": "ok",
-  "stdout": "## *Title*"
- },
- "unclosed-if": {
-  "status": "error",
-  "stdout": ""
- },
- "unclosed-for": {
-  "status": "error",
-  "stdout": ""
- },
- "unclosed-output": {
-  "status": "error",
-  "stdout": ""
- },
- "unknown-filter": {
-  "status": "error",
-  "stdout": ""
- },
- "malformed-whitespace-control": {
-  "status": "error",
-  "stdout": ""
- },
- "loop-nonarray": {
-  "status": "error",
-  "stdout": ""
- },
- "fallback-missing": {
-  "status": "ok",
-  "stdout": "X"
- },
- "fallback-chain": {
-  "status": "ok",
-  "stdout": "B"
- },
- "fallback-falsy": {
-  "status": "ok",
-  "stdout": "back"
- },
- "fallback-empty-str": {
-  "status": "ok",
-  "stdout": "back"
- },
- "set-basic": {
-  "status": "ok",
-  "stdout": "hi"
- },
- "set-expr": {
-  "status": "ok",
-  "stdout": "3"
- },
- "set-filtered": {
-  "status": "ok",
-  "stdout": "**abc**"
- },
- "set-scope-loop": {
-  "status": "ok",
-  "stdout": "0"
- },
- "bracket-dynamic": {
-  "status": "ok",
-  "stdout": ""
- },
- "bracket-var-key": {
-  "status": "ok",
-  "stdout": "1"
- },
- "bracket-str-index": {
-  "status": "ok",
-  "stdout": "b"
- },
- "item-index": {
-  "status": "ok",
-  "stdout": "0:a \n1:b"
- },
- "loop-meta": {
-  "status": "ok",
-  "stdout": "1/0/2/true/false;\n2/1/2/false/true;"
- },
- "ws-standalone-for": {
-  "status": "ok",
-  "stdout": "A\n= x\n  = y\nZ"
- },
- "ws-indented-for": {
-  "status": "ok",
-  "stdout": "A\n  = x\n  \n  = y\n\nZ"
- },
- "ws-nested-for": {
-  "status": "ok",
-  "stdout": "+ A\n  = x\n  \n  = y\n\nZ"
- },
- "ws-inline-if": {
-  "status": "ok",
-  "stdout": "Xa b Y"
- },
- "ws-inline-for": {
-  "status": "ok",
-  "stdout": "Xa 1 \na 2Y"
- },
- "ws-else-col0": {
-  "status": "ok",
-  "stdout": "A\n  F\nZ"
- },
- "ws-elseif": {
-  "status": "ok",
-  "stdout": "A\n  B\nZ"
- },
- "ws-comment-line": {
-  "status": "ok",
-  "stdout": "A\n\n  B"
- },
- "ws-set-line": {
-  "status": "ok",
-  "stdout": "A\n    B1"
- },
- "eq-identity-arr": {
-  "status": "ok",
-  "stdout": "truefalse"
- },
- "eq-identity-obj": {
-  "status": "ok",
-  "stdout": "truefalse"
- },
- "eq-prim": {
-  "status": "ok",
-  "stdout": "truefalsefalse"
- },
- "contains-str": {
-  "status": "ok",
-  "stdout": "yes"
- },
- "contains-arr": {
-  "status": "ok",
-  "stdout": "yes"
- },
- "num-exp-large": {
-  "status": "ok",
-  "stdout": "1e+308"
- },
- "num-exp-small": {
-  "status": "ok",
-  "stdout": "5e-324"
- },
- "num-int-vs-float": {
-  "status": "ok",
-  "stdout": "11.5-0.25"
- },
- "singleton-unwrap": {
-  "status": "ok",
-  "stdout": "a[[1,2]]"
- },
- "arr-serialize": {
-  "status": "ok",
-  "stdout": "[\"a\",1,true,null,{\"k\":\"v\"}]"
- },
- "obj-serialize": {
-  "status": "ok",
-  "stdout": "{\"a\":1,\"b\":[\"c\"]}"
- },
- "str-json-array": {
-  "status": "ok",
-  "stdout": "- a\n- b"
- },
- "filter-on-literal": {
-  "status": "ok",
-  "stdout": "**x**"
- },
- "filter-chain-type": {
-  "status": "ok",
-  "stdout": "[\"**a**\",\"**b**\"]"
- },
- "param-paren": {
-  "status": "ok",
-  "stdout": "| N | R |\n| - | - |\n| a | b |"
- },
- "param-bare-var": {
-  "status": "ok",
-  "stdout": "[TXT](u)"
- },
- "if-not": {
-  "status": "ok",
-  "stdout": "N"
- },
- "if-cmp-chain": {
-  "status": "ok",
-  "stdout": "Y"
- },
- "dash-rejected": {
-  "status": "error",
-  "stdout": ""
- },
- "dash-rejected-logic": {
-  "status": "error",
-  "stdout": ""
- },
- "obj-unwrap-object": {
-  "status": "ok",
-  "stdout": "[A](https://a)\n[B](https://b)"
- }
+  "empty-template": {
+    "status": "ok",
+    "stdout": ""
+  },
+  "empty-data": {
+    "status": "ok",
+    "stdout": ""
+  },
+  "missing-variable": {
+    "status": "ok",
+    "stdout": "Before  after"
+  },
+  "plain-variable": {
+    "status": "ok",
+    "stdout": "Ada!"
+  },
+  "nested-variable": {
+    "status": "ok",
+    "stdout": "Note"
+  },
+  "if-true": {
+    "status": "ok",
+    "stdout": "A B C"
+  },
+  "if-false": {
+    "status": "ok",
+    "stdout": "A Z C"
+  },
+  "comment": {
+    "status": "ok",
+    "stdout": "A  B"
+  },
+  "comment-whitespace-marker": {
+    "status": "ok",
+    "stdout": "A  B"
+  },
+  "whitespace-inline": {
+    "status": "ok",
+    "stdout": "pre\nyes\npost"
+  },
+  "whitespace-loop": {
+    "status": "ok",
+    "stdout": "a\nb\nc"
+  },
+  "nested-loops": {
+    "status": "ok",
+    "stdout": "a;\nb;\nc;"
+  },
+  "empty-loop": {
+    "status": "ok",
+    "stdout": "AB"
+  },
+  "heading-1": {
+    "status": "ok",
+    "stdout": "# Title"
+  },
+  "heading-2": {
+    "status": "ok",
+    "stdout": "## Title"
+  },
+  "heading-3": {
+    "status": "ok",
+    "stdout": "### Title"
+  },
+  "heading-4": {
+    "status": "ok",
+    "stdout": "#### Title"
+  },
+  "heading-5": {
+    "status": "ok",
+    "stdout": "##### Title"
+  },
+  "heading-6": {
+    "status": "ok",
+    "stdout": "###### Title"
+  },
+  "bold-word": {
+    "status": "ok",
+    "stdout": "**watch out**"
+  },
+  "italic-word": {
+    "status": "ok",
+    "stdout": "*very*"
+  },
+  "code-word": {
+    "status": "ok",
+    "stdout": "`zig build`"
+  },
+  "code-backtick": {
+    "status": "ok",
+    "stdout": "``a`b``"
+  },
+  "blockquote": {
+    "status": "ok",
+    "stdout": "> A quote"
+  },
+  "list-basic": {
+    "status": "ok",
+    "stdout": "- red\n- blue"
+  },
+  "list-empty": {
+    "status": "ok",
+    "stdout": ""
+  },
+  "list-nested": {
+    "status": "ok",
+    "stdout": "- red\n\t- blue\n\t- green"
+  },
+  "chain-italic-heading": {
+    "status": "ok",
+    "stdout": "## *Title*"
+  },
+  "unclosed-if": {
+    "status": "error",
+    "stdout": ""
+  },
+  "unclosed-for": {
+    "status": "error",
+    "stdout": ""
+  },
+  "unclosed-output": {
+    "status": "error",
+    "stdout": ""
+  },
+  "unknown-filter": {
+    "status": "error",
+    "stdout": ""
+  },
+  "malformed-whitespace-control": {
+    "status": "error",
+    "stdout": ""
+  },
+  "loop-nonarray": {
+    "status": "error",
+    "stdout": ""
+  },
+  "fallback-missing": {
+    "status": "ok",
+    "stdout": "X"
+  },
+  "fallback-chain": {
+    "status": "ok",
+    "stdout": "B"
+  },
+  "fallback-falsy": {
+    "status": "ok",
+    "stdout": "back"
+  },
+  "fallback-empty-str": {
+    "status": "ok",
+    "stdout": "back"
+  },
+  "set-basic": {
+    "status": "ok",
+    "stdout": "hi"
+  },
+  "set-expr": {
+    "status": "ok",
+    "stdout": "3"
+  },
+  "set-filtered": {
+    "status": "ok",
+    "stdout": "**abc**"
+  },
+  "set-scope-loop": {
+    "status": "ok",
+    "stdout": "0"
+  },
+  "bracket-dynamic": {
+    "status": "ok",
+    "stdout": ""
+  },
+  "bracket-var-key": {
+    "status": "ok",
+    "stdout": "1"
+  },
+  "bracket-str-index": {
+    "status": "ok",
+    "stdout": "b"
+  },
+  "item-index": {
+    "status": "ok",
+    "stdout": "0:a \n1:b"
+  },
+  "loop-meta": {
+    "status": "ok",
+    "stdout": "1/0/2/true/false;\n2/1/2/false/true;"
+  },
+  "ws-standalone-for": {
+    "status": "ok",
+    "stdout": "A\n= x\n  = y\nZ"
+  },
+  "ws-indented-for": {
+    "status": "ok",
+    "stdout": "A\n  = x\n  \n  = y\n\nZ"
+  },
+  "ws-nested-for": {
+    "status": "ok",
+    "stdout": "+ A\n  = x\n  \n  = y\n\nZ"
+  },
+  "ws-inline-if": {
+    "status": "ok",
+    "stdout": "Xa b Y"
+  },
+  "ws-inline-for": {
+    "status": "ok",
+    "stdout": "Xa 1 \na 2Y"
+  },
+  "ws-else-col0": {
+    "status": "ok",
+    "stdout": "A\n  F\nZ"
+  },
+  "ws-elseif": {
+    "status": "ok",
+    "stdout": "A\n  B\nZ"
+  },
+  "ws-comment-line": {
+    "status": "ok",
+    "stdout": "A\n\n  B"
+  },
+  "ws-set-line": {
+    "status": "ok",
+    "stdout": "A\n    B1"
+  },
+  "eq-identity-arr": {
+    "status": "ok",
+    "stdout": "truefalse"
+  },
+  "eq-identity-obj": {
+    "status": "ok",
+    "stdout": "truefalse"
+  },
+  "eq-prim": {
+    "status": "ok",
+    "stdout": "truefalsefalse"
+  },
+  "contains-str": {
+    "status": "ok",
+    "stdout": "yes"
+  },
+  "contains-arr": {
+    "status": "ok",
+    "stdout": "yes"
+  },
+  "num-exp-large": {
+    "status": "ok",
+    "stdout": "1e+308"
+  },
+  "num-exp-small": {
+    "status": "ok",
+    "stdout": "5e-324"
+  },
+  "num-int-vs-float": {
+    "status": "ok",
+    "stdout": "11.5-0.25"
+  },
+  "singleton-unwrap": {
+    "status": "ok",
+    "stdout": "a[[1,2]]"
+  },
+  "arr-serialize": {
+    "status": "ok",
+    "stdout": "[\"a\",1,true,null,{\"k\":\"v\"}]"
+  },
+  "obj-serialize": {
+    "status": "ok",
+    "stdout": "{\"a\":1,\"b\":[\"c\"]}"
+  },
+  "str-json-array": {
+    "status": "ok",
+    "stdout": "- a\n- b"
+  },
+  "filter-on-literal": {
+    "status": "ok",
+    "stdout": "**x**"
+  },
+  "filter-chain-type": {
+    "status": "ok",
+    "stdout": "[\"**a**\",\"**b**\"]"
+  },
+  "param-paren": {
+    "status": "ok",
+    "stdout": "| N | R |\n| - | - |\n| a | b |"
+  },
+  "param-bare-var": {
+    "status": "ok",
+    "stdout": "[TXT](u)"
+  },
+  "if-not": {
+    "status": "ok",
+    "stdout": "N"
+  },
+  "if-cmp-chain": {
+    "status": "ok",
+    "stdout": "Y"
+  },
+  "dash-rejected": {
+    "status": "error",
+    "stdout": ""
+  },
+  "dash-rejected-logic": {
+    "status": "error",
+    "stdout": ""
+  },
+  "obj-unwrap-object": {
+    "status": "ok",
+    "stdout": "[A](https://a)\n[B](https://b)"
+  },
+  "date-z-format": {
+    "status": "ok",
+    "stdout": "2024/12/01 15:04:05 +00:00\n+00:00 +0000"
+  },
+  "date-z-input": {
+    "status": "ok",
+    "stdout": "2024-12-01 15:04"
+  },
+  "date-time-only": {
+    "status": "ok",
+    "stdout": "15:04:05\n3:04 PM"
+  }
 }

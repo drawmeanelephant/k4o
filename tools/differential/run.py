@@ -10,6 +10,7 @@ with empty stdout."""
 import argparse
 from html.parser import HTMLParser
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -69,8 +70,11 @@ class Tags(HTMLParser):
 
 
 def invoke(command, *, input=None):
+    # Date filters resolve to local time — pin TZ so snapshots and the
+    # knap-vs-k4o comparison are machine-independent (CI runs UTC).
+    env = {**os.environ, "TZ": "UTC"}
     try:
-        return subprocess.run(command, input=input, capture_output=True, timeout=TIMEOUT)
+        return subprocess.run(command, input=input, capture_output=True, timeout=TIMEOUT, env=env)
     except subprocess.TimeoutExpired as error:
         raise AssertionError(f"timeout: {command[0]} ({TIMEOUT}s)") from error
     except OSError as error:
