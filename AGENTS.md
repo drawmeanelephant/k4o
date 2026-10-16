@@ -71,7 +71,7 @@ trip, lint/init smoke, and a static musl cross-build.
   serialize depth with a diagnostic, not a panic.
 - `src/filters.zig` + `src/filters/*.zig` — the ~75-filter registry split by
   group (markup/text/numbers/dates/collections/advanced/extensions/html),
-  plus `src/zre.zig` — the bounded regex engine behind `replace`, designed
+  plus `src/re.zig` — the bounded regex engine behind `replace`, designed
   to be lifted out as its own package. `link` input=URL/arg=label, blocked
   schemes shared with lint.
 - `src/lint.zig` — education-grade findings over the shared parser.
@@ -85,7 +85,7 @@ trip, lint/init smoke, and a static musl cross-build.
   tools/differential`), plus `tools/differential/oracle-docs/` — captured
   `knap help` output embedded into `k4o help` via `src/help/`.
 - `KNAP-FIDELITY.md` — the issue-#60 implementation spec and decisions log
-  (embed exclusion, textile/gfm cut, bounded regex, batch).
+  (embed implemented as text emit, textile/gfm cut, bounded regex, batch).
 
 ## Conventions
 
