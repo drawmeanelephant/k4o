@@ -1,225 +1,292 @@
-//! Format-specific emitters for the shared Knap filter registry.
+//! The knap filter registry: dispatch, shared helpers, per-group modules.
 //!
-//! The filter names, arguments, value validation and diagnostics are shared.
-//! Only the emitted markup depends on the selected format. The compile-time
-//! markdown mutant still changes the default format for red-green verification.
+//! Filter names, arguments, value handling and diagnostics are shared;
+//! markup emitters live in filters/markup.zig and friends. Semantics follow
+//! the knap 0.6.0 oracle (tools/differential) and `knap help` — see
+//! KNAP-FIDELITY.md.
 //!
-//! Clean-room note: the filter *names* follow Knap's user-facing
-//! documentation; the emitted forms follow the Textile specification
-//! snapshots (see README.md -> Clean-room record).
+//! Typed pipeline contract: filters receive `*const std.json.Value` and
+//! return handles into the arena. Strings that look like serialized
+//! collections are parsed first ("serialized arrays and objects produced by
+//! another filter are recognized automatically"). Text filters recurse over
+//! arrays (and, per filter, object values) while non-strings pass through —
+//! `["a","b"] | bold` -> `["**a**","**b**"]`.
 
 const std = @import("std");
 const diag = @import("diag.zig");
 const parse = @import("parse.zig");
+const engine = @import("engine.zig");
+
+pub const markup = @import("filters/markup.zig");
+pub const text = @import("filters/text.zig");
+pub const numbers = @import("filters/numbers.zig");
+pub const dates = @import("filters/dates.zig");
+pub const collections = @import("filters/collections.zig");
+pub const extensions = @import("filters/extensions.zig");
+pub const advanced = @import("filters/advanced.zig");
+const transform = @import("filters/transform.zig");
+pub const html = @import("filters/html.zig");
+
 pub const Error = error{ Template, OutOfMemory };
-pub const Format = enum { textile, markdown, gfm };
+pub const Format = enum { markdown, oliver };
 
-pub const Entry = struct {
-    name: []const u8,
-    takes_arg: bool,
-};
+pub const Interp = engine.Interp;
+pub const Value = std.json.Value;
 
-/// The complete registry. README.md documents exactly this set, and the
-/// test suite asserts every entry has at least one fixture case.
-pub const entries = [_]Entry{
-    .{ .name = "h1", .takes_arg = false },
-    .{ .name = "h2", .takes_arg = false },
-    .{ .name = "h3", .takes_arg = false },
-    .{ .name = "h4", .takes_arg = false },
-    .{ .name = "h5", .takes_arg = false },
-    .{ .name = "h6", .takes_arg = false },
-    .{ .name = "bold", .takes_arg = false },
-    .{ .name = "italic", .takes_arg = false },
-    .{ .name = "code", .takes_arg = false },
-    .{ .name = "codeblock", .takes_arg = false },
-    .{ .name = "blockquote", .takes_arg = false },
-    .{ .name = "link", .takes_arg = true },
-    .{ .name = "list", .takes_arg = false },
-    .{ .name = "numbered", .takes_arg = false },
-    .{ .name = "table", .takes_arg = false },
-};
+// transform runs ahead of advanced so `map`/`template` — which live in
+// advanced's registry names — hit the implemented module first.
+const modules = .{ markup, text, numbers, dates, collections, extensions, transform, advanced, html };
 
-pub fn registry() []const Entry {
+/// The complete registry: every filter name the oracle's CLI knows. Each
+/// implemented name needs at least one fixture case; the blocked set below
+/// renders a documented diagnostic instead.
+pub const entries = markup.names ++ text.names ++ numbers.names ++
+    dates.names ++ collections.names ++ extensions.names ++
+    advanced.names ++ html.names ++ blocked_names;
+
+/// Filters that exist in the oracle but cannot work in an embeddable
+/// engine: DOM-dependent (upstream segregates them into `knap/html`) or a
+
+pub const blocked_names = [_][]const u8{ "html_to_json", "remove_html" };
+
+/// Registered names whose implementations have not landed yet — the
+/// property test skips these. Empty: every registered filter has an
+/// implementation and a fixture.
+pub const pending = [_][]const u8{};
+
+pub fn registry() []const []const u8 {
     return &entries;
 }
 
-fn isRegistered(name: []const u8) bool {
+pub fn isRegistered(name: []const u8) bool {
     for (entries) |e| {
-        if (std.mem.eql(u8, e.name, name)) return true;
+        if (std.mem.eql(u8, e, name)) return true;
     }
     return false;
 }
 
-fn headingLevel(name: []const u8) ?u8 {
-    if (name.len == 2 and name[0] == 'h' and name[1] >= '1' and name[1] <= '6') {
-        return name[1] - '0';
+fn isBlocked(name: []const u8) bool {
+    for (blocked_names) |e| {
+        if (std.mem.eql(u8, e, name)) return true;
     }
-    return null;
+    return false;
 }
 
 pub fn apply(
-    alloc: std.mem.Allocator,
-    d: *diag.Diagnostic,
-    template: []const u8,
+    it: *Interp,
     call: parse.FilterCall,
-    input: std.json.Value,
-    root: std.json.Value,
-    format: Format,
-    input_is_markup: bool,
-) Error!std.json.Value {
-    if (!isRegistered(call.name)) {
-        return diag.fail(alloc, d, .unknown_filter, template, call.offset, "no filter named \"{s}\"", .{call.name});
+    input: *const Value,
+) Error!*const Value {
+    inline for (modules) |m| {
+        if (try m.apply(it, call, input)) |v| return v;
     }
-
-    if (headingLevel(call.name)) |level| {
-        if (call.arg != null) return badArg(alloc, d, template, call, "filter '{s}' takes no arguments", .{call.name});
-        const text = try phraseText(alloc, d, template, call, input);
-        const content = if (format != .textile and !input_is_markup) try escapeMarkdown(alloc, text) else text;
-        const out = if (format != .textile)
-            try std.fmt.allocPrint(alloc, "{s} {s}", .{ try repeatChar(alloc, '#', level), content })
-        else
-            try std.fmt.allocPrint(alloc, "h{d}. {s}", .{ level, text });
-        return .{ .string = out };
+    if (isBlocked(call.name)) {
+        return diag.fail(it.alloc, it.diag, .render, it.template, call.offset, "filter '{s}' is not supported by k4o (it needs a host environment)", .{call.name});
     }
-
-    if (std.mem.eql(u8, call.name, "bold")) {
-        if (call.arg != null) return badArg(alloc, d, template, call, "filter 'bold' takes no arguments", .{});
-        const text = try phraseText(alloc, d, template, call, input);
-        const content = if (format != .textile and !input_is_markup) try escapeMarkdown(alloc, text) else text;
-        const out = if (format != .textile)
-            try markdownEmphasis(alloc, content, "**")
-        else
-            try std.fmt.allocPrint(alloc, "*{s}*", .{text});
-        return .{ .string = out };
-    }
-
-    if (std.mem.eql(u8, call.name, "italic")) {
-        if (call.arg != null) return badArg(alloc, d, template, call, "filter 'italic' takes no arguments", .{});
-        const text = try phraseText(alloc, d, template, call, input);
-        const content = if (format != .textile and !input_is_markup) try escapeMarkdown(alloc, text) else text;
-        const out = if (format != .textile)
-            try markdownEmphasis(alloc, content, "*")
-        else
-            try std.fmt.allocPrint(alloc, "_{s}_", .{text});
-        return .{ .string = out };
-    }
-
-    if (std.mem.eql(u8, call.name, "code")) {
-        if (call.arg != null) return badArg(alloc, d, template, call, "filter 'code' takes no arguments", .{});
-        const text = try phraseText(alloc, d, template, call, input);
-        const out = if (format != .textile)
-            try inlineCode(alloc, text)
-        else
-            try std.fmt.allocPrint(alloc, "@{s}@", .{text});
-        return .{ .string = out };
-    }
-
-    if (std.mem.eql(u8, call.name, "blockquote")) {
-        if (call.arg != null) return badArg(alloc, d, template, call, "filter 'blockquote' takes no arguments", .{});
-        const text = try phraseText(alloc, d, template, call, input);
-        const content = if (format != .textile and !input_is_markup) try escapeMarkdownInContext(alloc, text, .block_quote) else text;
-        const out = if (format != .textile)
-            try std.fmt.allocPrint(alloc, "> {s}", .{content})
-        else
-            try std.fmt.allocPrint(alloc, "bq. {s}", .{text});
-        return .{ .string = out };
-    }
-
-    if (std.mem.eql(u8, call.name, "codeblock")) {
-        if (call.arg != null) return badArg(alloc, d, template, call, "filter 'codeblock' takes no arguments", .{});
-        const text = (try scalarText(alloc, input)) orelse
-            return failRender(alloc, d, template, call.offset, "filter 'codeblock' expects a text value, but got {s}", .{typeName(input)});
-        const out = if (format != .textile)
-            try codeFence(alloc, text)
-        else if (hasContentAfterBlankLine(text))
-            try std.fmt.allocPrint(alloc, "bc.. {s}", .{text})
-        else
-            try std.fmt.allocPrint(alloc, "bc. {s}", .{text});
-        return .{ .string = out };
-    }
-
-    if (std.mem.eql(u8, call.name, "link")) {
-        const arg = call.arg orelse
-            return badArg(alloc, d, template, call, "filter 'link' requires a URL argument, e.g. link:\"https://example.com/\"", .{});
-        const url = try argText(alloc, d, template, call, arg, root);
-        if (url.len == 0) return badArg(alloc, d, template, call, "filter 'link' URL must not be empty", .{});
-        if (urlProblem(url)) |p| {
-            return switch (p) {
-                .leading_angle => badArg(alloc, d, template, call, "filter 'link' URL must not start with '<'", .{}),
-                .whitespace_or_dquote => badArg(alloc, d, template, call, "filter 'link' URL must not contain whitespace or a double quote", .{}),
-                .control_char => badArg(alloc, d, template, call, "filter 'link' URL must not contain ASCII control characters", .{}),
-            };
-        }
-        if (hasBlockedScheme(url)) {
-            return badArg(alloc, d, template, call, "filter 'link' refuses the URL scheme '{s}:', which can execute script in the Textile renderer", .{try schemeName(alloc, url)});
-        }
-        const text = try phraseText(alloc, d, template, call, input);
-        const content = if (format != .textile and !input_is_markup) try escapeMarkdown(alloc, text) else text;
-        if (std.mem.indexOfScalar(u8, text, '"') != null) {
-            return failRender(alloc, d, template, call.offset, "filter 'link' text must not contain a double quote", .{});
-        }
-        const out = if (format != .textile)
-            try std.fmt.allocPrint(alloc, "[{s}]({s})", .{ content, try escapeUrl(alloc, url) })
-        else
-            try std.fmt.allocPrint(alloc, "\"{s}\":{s}", .{ text, url });
-        return .{ .string = out };
-    }
-
-    if (std.mem.eql(u8, call.name, "list")) {
-        if (call.arg != null) return badArg(alloc, d, template, call, "filter 'list' takes no arguments", .{});
-        return .{ .string = try emitList(alloc, d, template, call, input, false, format) };
-    }
-    if (std.mem.eql(u8, call.name, "numbered")) {
-        if (call.arg != null) return badArg(alloc, d, template, call, "filter 'numbered' takes no arguments", .{});
-        return .{ .string = try emitList(alloc, d, template, call, input, true, format) };
-    }
-    if (std.mem.eql(u8, call.name, "table")) {
-        if (call.arg != null) return badArg(alloc, d, template, call, "filter 'table' takes no arguments", .{});
-        return .{ .string = try emitTable(alloc, d, template, call, input, format) };
-    }
-
-    // Unreachable: the registry check above guarantees every name is
-    // handled by one of the branches.
-    unreachable;
+    return diag.fail(it.alloc, it.diag, .unknown_filter, it.template, call.offset, "no filter named \"{s}\"", .{call.name});
 }
 
-fn badArg(
-    alloc: std.mem.Allocator,
-    d: *diag.Diagnostic,
-    template: []const u8,
+// --------------------------------------------------------------------
+// Shared helpers for the filter modules.
+
+/// Fail with a bad-argument diagnostic positioned at the filter call.
+pub fn badArg(
+    it: *Interp,
     call: parse.FilterCall,
     comptime fmt: []const u8,
     args: anytype,
 ) error{Template} {
-    return diag.fail(alloc, d, .bad_argument, template, call.offset, fmt, args);
+    return diag.fail(it.alloc, it.diag, .bad_argument, it.template, call.offset, fmt, args);
 }
 
-fn failRender(
-    alloc: std.mem.Allocator,
-    d: *diag.Diagnostic,
-    template: []const u8,
+/// Fail with a render diagnostic positioned at the filter call.
+pub fn failAt(
+    it: *Interp,
     offset: usize,
     comptime fmt: []const u8,
     args: anytype,
 ) error{Template} {
-    return diag.fail(alloc, d, .render, template, offset, fmt, args);
+    return diag.fail(it.alloc, it.diag, .render, it.template, offset, fmt, args);
 }
 
-/// Renders a scalar value to text; returns null for arrays and objects
-/// (callers decide how to report that).
-fn scalarText(alloc: std.mem.Allocator, v: std.json.Value) error{OutOfMemory}!?[]const u8 {
+/// Reject params beyond `max` for filters with a fixed arity.
+pub fn arity(
+    it: *Interp,
+    call: parse.FilterCall,
+    max: usize,
+) error{Template}!void {
+    if (call.params.len > max) {
+        return badArg(it, call, "filter '{s}' takes at most {d} argument(s)", .{ call.name, max });
+    }
+}
+
+/// `call.params[i]` evaluated, or null when absent. Bare words resolve
+/// against the data root and fall back to their text (`link:url`).
+pub fn param(it: *Interp, call: parse.FilterCall, i: usize) Error!?*const Value {
+    if (i >= call.params.len) return null;
+    return switch (call.params[i]) {
+        .value => |e| it.evalParam(e),
+        else => badArg(it, call, "filter '{s}' does not take a key:value or arrow argument here", .{call.name}),
+    };
+}
+
+/// `call.params[i]` as text, or null when absent. Containers coerce the
+/// JavaScript way — an object becomes "[object Object]" and an array
+/// joins with commas — matching how the oracle treats arguments.
+pub fn paramText(it: *Interp, call: parse.FilterCall, i: usize) Error!?[]const u8 {
+    const v = (try param(it, call, i)) orelse return null;
+    return try jsToString(it.alloc, v);
+}
+
+/// JavaScript's implicit toString: scalars render as themselves, an
+/// object is always "[object Object]", and arrays join their elements'
+/// toStrings with commas.
+pub fn jsToString(alloc: std.mem.Allocator, v: *const Value) Error![]const u8 {
+    switch (v.*) {
+        .object => return "[object Object]",
+        .null => return "null",
+        .array => |arr| {
+            var out = std.ArrayList(u8).empty;
+            for (arr.items, 0..) |*item, i| {
+                if (i > 0) try out.append(alloc, ',');
+                try out.appendSlice(alloc, try jsToString(alloc, item));
+            }
+            return out.toOwnedSlice(alloc);
+        },
+        else => return (try scalarText(alloc, v.*)).?,
+    }
+}
+
+/// `call.params[i]` as a f64, or null when absent.
+pub fn paramNumber(it: *Interp, call: parse.FilterCall, i: usize) Error!?f64 {
+    const v = (try param(it, call, i)) orelse return null;
+    return switch (v.*) {
+        .integer => |n| @floatFromInt(n),
+        .float => |f| f,
+        .number_string => |s| std.fmt.parseFloat(f64, s) catch
+            return badArg(it, call, "filter '{s}' argument must be a number", .{call.name}),
+        .string => |s| std.fmt.parseFloat(f64, s) catch
+            return badArg(it, call, "filter '{s}' argument must be a number", .{call.name}),
+        else => badArg(it, call, "filter '{s}' argument must be a number", .{call.name}),
+    };
+}
+
+/// Renders a scalar value to text; returns null for arrays and objects.
+pub fn scalarText(alloc: std.mem.Allocator, v: Value) error{OutOfMemory}!?[]const u8 {
     return switch (v) {
         .string => |s| s,
         .number_string => |s| s,
         .bool => |b| if (b) "true" else "false",
         .null => "",
         .integer => |i| try std.fmt.allocPrint(alloc, "{d}", .{i}),
-        .float => |f| try std.fmt.allocPrint(alloc, "{d}", .{f}),
+        .float => |f| try engine.jsFloat(alloc, f),
         .array, .object => null,
     };
 }
 
-fn typeName(v: std.json.Value) []const u8 {
+/// Scalar text or a diagnostic naming the filter.
+pub fn textValue(
+    it: *Interp,
+    call: parse.FilterCall,
+    input: *const Value,
+) Error![]const u8 {
+    return (try scalarText(it.alloc, input.*)) orelse
+        failAt(it, call.offset, "filter '{s}' expects a text value, but got {s}", .{ call.name, typeName(input.*) });
+}
+
+/// A serialized-collection string reparsed into its value. Strings that do
+/// not parse as a JSON array or object pass through unchanged — the
+/// oracle's "serialized collections from another filter are recognized
+/// automatically" rule.
+pub fn normalizeInput(it: *Interp, input: *const Value) Error!*const Value {
+    switch (input.*) {
+        .string => |s| {
+            const t = std.mem.trim(u8, s, " \t\r\n");
+            if (t.len < 2 or (t[0] != '[' and t[0] != '{')) return input;
+            const parsed = std.json.parseFromSliceLeaky(Value, it.alloc, t, .{}) catch return input;
+            return it.make(parsed);
+        },
+        // Filters see a single-element primitive array as the element —
+        // `["A b"] | fragment_link` is a scalar passthrough, matching the
+        // same unwrap `{{ ["a"] }}` applies at output. Null, containers
+        // and the undefined sentinel stay wrapped.
+        .array => |arr| {
+            if (arr.items.len != 1) return input;
+            const elem = arr.items[0];
+            return switch (elem) {
+                .bool, .integer, .float, .string => it.make(elem),
+                .number_string => |ns| if (!std.mem.eql(u8, ns, "undefined"))
+                    it.make(elem)
+                else
+                    input,
+                else => input,
+            };
+        },
+        else => return input,
+    }
+}
+
+/// Recursively map the string leaves of a value: arrays map per element,
+/// objects map per value (keys preserved) when `map_object_values`, and
+/// non-strings pass through. Serialized-collection input is parsed first.
+/// This is the vectorization contract documented for most markup and text
+/// filters.
+pub fn mapStrings(
+    it: *Interp,
+    input: *const Value,
+    map_object_values: bool,
+    ctx: anytype,
+    comptime f: fn (@TypeOf(ctx), *Interp, []const u8) Error![]const u8,
+) Error!*const Value {
+    const v = try normalizeInput(it, input);
+    return mapStringsInner(it, v, map_object_values, ctx, f);
+}
+
+fn mapStringsInner(
+    it: *Interp,
+    v: *const Value,
+    map_object_values: bool,
+    ctx: anytype,
+    comptime f: fn (@TypeOf(ctx), *Interp, []const u8) Error![]const u8,
+) Error!*const Value {
+    switch (v.*) {
+        .string => |s| return it.make(.{ .string = try f(ctx, it, s) }),
+        .number_string => |s| return it.make(.{ .string = try f(ctx, it, s) }),
+        .array => |arr| {
+            var items = try it.alloc.alloc(Value, arr.items.len);
+            for (arr.items, 0..) |*item, i| {
+                items[i] = (try mapStringsInner(it, item, map_object_values, ctx, f)).*;
+            }
+            var list = std.json.Array.init(it.alloc);
+            try list.appendSlice(items);
+            return it.make(.{ .array = list });
+        },
+        .object => |obj| {
+            if (!map_object_values) return v;
+            var map: std.json.ObjectMap = .empty;
+            try map.ensureTotalCapacity(it.alloc, obj.count());
+            var it2 = obj.iterator();
+            while (it2.next()) |entry| {
+                const mapped = try mapStringsInner(it, entry.value_ptr, map_object_values, ctx, f);
+                map.putAssumeCapacity(entry.key_ptr.*, mapped.*);
+            }
+            return it.make(.{ .object = map });
+        },
+        else => return v,
+    }
+}
+
+/// The leading/trailing whitespace of `s`, kept outside inline markers:
+/// `"  pad  "` bolds as `"  **pad**  "`.
+pub fn splitWrap(s: []const u8) struct { ws_start: []const u8, core: []const u8, ws_end: []const u8 } {
+    var a: usize = 0;
+    var b: usize = s.len;
+    while (a < b and (s[a] == ' ' or s[a] == '\t' or s[a] == '\n' or s[a] == '\r')) a += 1;
+    while (b > a and (s[b - 1] == ' ' or s[b - 1] == '\t' or s[b - 1] == '\n' or s[b - 1] == '\r')) b -= 1;
+    return .{ .ws_start = s[0..a], .core = s[a..b], .ws_end = s[b..] };
+}
+
+pub fn typeName(v: Value) []const u8 {
     return switch (v) {
         .null => "null",
         .bool => "a boolean",
@@ -230,25 +297,10 @@ fn typeName(v: std.json.Value) []const u8 {
     };
 }
 
-fn phraseText(
-    alloc: std.mem.Allocator,
-    d: *diag.Diagnostic,
-    template: []const u8,
-    call: parse.FilterCall,
-    input: std.json.Value,
-) error{ Template, OutOfMemory }![]const u8 {
-    const text = (try scalarText(alloc, input)) orelse
-        return failRender(alloc, d, template, call.offset, "filter '{s}' expects a text value, but got {s}", .{ call.name, typeName(input) });
-    if (std.mem.indexOfScalar(u8, text, '\n') != null) {
-        return failRender(alloc, d, template, call.offset, "filter '{s}' expects single-line text", .{call.name});
-    }
-    return text;
-}
-
-/// Schemes that can execute script in whatever renders the Textile. Blocked
-/// because the README's premise is that a downstream Textile parser renders
-/// this output. Navigational schemes (`mailto:`, `ftp:`, `file:`, and relative
-/// paths) are the caller's business and are left alone.
+/// Schemes that can execute script in whatever renders the Markdown.
+/// Blocked because a downstream parser renders this output. Navigational
+/// schemes (`mailto:`, `ftp:`, `file:`, and relative paths) are the
+/// caller's business and are left alone.
 const blocked_schemes = [_][]const u8{ "javascript", "vbscript", "data" };
 
 /// Decodes the entity and numeric character references that CommonMark
@@ -300,10 +352,10 @@ const DecodedRef = struct { codepoint: u21, len: usize };
 /// Decodes one character reference at the start of `s` (which begins with
 /// `&`). Semicolon-terminated only, per CommonMark 0.31.2 §6.2. The digit
 /// run is uncapped and accumulates with saturation: HTML resolves overlong
-/// zero-padded references (`&#x000000006a;`) in attribute values, which the
-/// Textile path emits verbatim, while CommonMark leaves them literal — so
-/// decoding them here only ever over-blocks, and saturating keeps a long
-/// digit run from overflowing the u32.
+/// zero-padded references (`&#x000000006a;`) in attribute values, while
+/// CommonMark leaves them literal — so decoding them here only ever
+/// over-blocks, and saturating keeps a long digit run from overflowing the
+/// u32.
 fn decodeRefAt(s: []const u8) ?DecodedRef {
     if (s.len < 3 or s[0] != '&') return null;
     if (s[1] == '#') {
@@ -371,389 +423,4 @@ pub fn schemeName(alloc: std.mem.Allocator, url: []const u8) error{OutOfMemory}!
     }
     const colon = std.mem.indexOfScalar(u8, url, ':') orelse return url;
     return url[0..colon];
-}
-
-/// Resolves a filter argument to text.
-///
-/// A quoted or numeric argument is a literal. A *bare* word is looked up in
-/// the data root first, so `link:url` means the value of `url` rather than
-/// the four characters `url`; with no such key it stays a literal, which
-/// preserves the documented bare-word behaviour. Quoting forces the literal
-/// (`link:"url"`).
-fn argText(
-    alloc: std.mem.Allocator,
-    d: *diag.Diagnostic,
-    template: []const u8,
-    call: parse.FilterCall,
-    arg: parse.Arg,
-    root: std.json.Value,
-) Error![]const u8 {
-    return switch (arg) {
-        .string => |s| s,
-        .number => |n| try std.fmt.allocPrint(alloc, "{d}", .{n}),
-        .bare => |name| blk: {
-            const resolved = switch (root) {
-                .object => |obj| obj.get(name),
-                else => null,
-            } orelse break :blk name;
-            break :blk switch (resolved) {
-                .string => |s| s,
-                .number_string => |s| s,
-                .integer => |n| try std.fmt.allocPrint(alloc, "{d}", .{n}),
-                .float => |f| try std.fmt.allocPrint(alloc, "{d}", .{f}),
-                .bool => |b| if (b) "true" else "false",
-                // Null, object and array have no text form, so falling back to
-                // the bare word here would be silent nonsense again.
-                else => badArg(alloc, d, template, call, "filter argument '{s}' resolves to {s}, but filter arguments must be text", .{ name, typeName(resolved) }),
-            };
-        },
-    };
-}
-
-fn repeatChar(alloc: std.mem.Allocator, c: u8, n: usize) error{OutOfMemory}![]u8 {
-    const out = try alloc.alloc(u8, n);
-    @memset(out, c);
-    return out;
-}
-
-/// Escape user text inside Markdown constructs, but not the markup emitted by
-/// an earlier filter in the same pipeline (`italic | h2`, `code | bold`).
-fn escapeMarkdown(alloc: std.mem.Allocator, text: []const u8) error{OutOfMemory}![]u8 {
-    return escapeMarkdownInContext(alloc, text, .inline_text);
-}
-
-/// `inline_text` is markup-inline content (headings, emphasis, link text,
-/// table cells). The block containers — `list_item`, `block_quote` — also
-/// expose each line start to block constructs, so ordered-list markers are
-/// escaped there as well.
-const MarkdownContext = enum { inline_text, block_quote, list_item };
-
-fn escapeMarkdownInContext(alloc: std.mem.Allocator, text: []const u8, context: MarkdownContext) error{OutOfMemory}![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(alloc);
-    var ordered_marker = if (context == .inline_text) null else orderedListMarker(text);
-    for (text, 0..) |c, i| {
-        if (c == '&') {
-            try out.appendSlice(alloc, "&amp;");
-        } else {
-            const at_line_start = out.items.len == 0 or out.items[out.items.len - 1] == '\n';
-            if (std.mem.indexOfScalar(u8, "\\`*_[]<>", c) != null or
-                (at_line_start and std.mem.indexOfScalar(u8, "#+-~", c) != null) or
-                ordered_marker == i)
-                try out.append(alloc, '\\');
-            try out.append(alloc, c);
-        }
-        if (context != .inline_text and (c == '\n' or c == '\r')) {
-            const start = i + 1;
-            ordered_marker = if (orderedListMarker(text[start..])) |offset| start + offset else null;
-        }
-    }
-    return out.toOwnedSlice(alloc);
-}
-
-/// CommonMark ordered markers have 1–9 digits, a '.' or ')', then whitespace
-/// or end-of-line, with at most three leading spaces. Escape the delimiter in
-/// scalar list text so only the array structure can introduce nested lists.
-fn orderedListMarker(text: []const u8) ?usize {
-    var i: usize = 0;
-    while (i < text.len and i < 3 and text[i] == ' ') : (i += 1) {}
-    const digits_start = i;
-    while (i < text.len and i - digits_start < 9 and std.ascii.isDigit(text[i])) : (i += 1) {}
-    if (i == digits_start or i == text.len or (text[i] != '.' and text[i] != ')')) return null;
-    if (i + 1 < text.len and std.mem.indexOfScalar(u8, " \t\r\n", text[i + 1]) == null) return null;
-    return i;
-}
-
-pub const UrlProblem = enum { leading_angle, whitespace_or_dquote, control_char };
-
-/// The first destination-hostile byte property in `url`, if any. A
-/// CommonMark parenthesised destination cannot start with `<` (it parses as
-/// the angle-bracket form and resolves to a different URL), and cannot
-/// contain spaces or ASCII control characters — the link silently stops
-/// parsing and the anchor disappears into literal text. Whitespace and `"`
-/// additionally break the Textile link form. Refused rather than encoded:
-/// the resolved destination is `url` itself, and a `<`-wrapped destination
-/// survives no downstream pipeline unchanged. Public because lint
-/// statically checks literal `link` arguments with the same rule.
-pub fn urlProblem(url: []const u8) ?UrlProblem {
-    if (url.len == 0) return null;
-    if (url[0] == '<') return .leading_angle;
-    for (url) |c| {
-        if (c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == '"') return .whitespace_or_dquote;
-        if (std.ascii.isControl(c)) return .control_char;
-    }
-    return null;
-}
-
-/// Percent- and entity-safe destination for the `[text](url)` form.
-///
-/// `(`, `)` and `\` are backslash-escaped per CommonMark 0.31.2 §6.6.
-/// `&` is emitted as `&amp;` so that entity or numeric character
-/// references in the source URL (`&#106;avascript:`, `javascript&colon;`,
-/// `&#x6a;`) cannot survive into the resolved destination: CommonMark
-/// decodes references inside link destinations, and a decoded
-/// `javascript:`-family scheme would bypass the blocklist checked against
-/// the raw argument. `&amp;` round-trips to a literal `&`, so legitimate
-/// URLs with query strings render unchanged.
-fn escapeUrl(alloc: std.mem.Allocator, url: []const u8) error{OutOfMemory}![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(alloc);
-    for (url) |c| {
-        switch (c) {
-            '(', ')', '\\' => try out.append(alloc, '\\'),
-            '&' => {
-                try out.appendSlice(alloc, "&amp;");
-                continue;
-            },
-            else => {},
-        }
-        try out.append(alloc, c);
-    }
-    return out.toOwnedSlice(alloc);
-}
-
-fn markdownEmphasis(alloc: std.mem.Allocator, text: []const u8, marker: []const u8) error{OutOfMemory}![]u8 {
-    const start = std.mem.indexOfNone(u8, text, " \t") orelse return alloc.dupe(u8, text);
-    const end = (std.mem.lastIndexOfNone(u8, text, " \t") orelse unreachable) + 1;
-    return std.fmt.allocPrint(alloc, "{s}{s}{s}{s}{s}", .{
-        text[0..start], marker, text[start..end], marker, text[end..],
-    });
-}
-
-/// Delimiters must be longer than any run of backticks in the content. Empty
-/// spans have no CommonMark representation; all-space spans must not be padded
-/// because CommonMark only strips boundary padding from non-all-space content.
-fn inlineCode(alloc: std.mem.Allocator, text: []const u8) error{OutOfMemory}![]u8 {
-    if (text.len == 0) return alloc.dupe(u8, text);
-    const ticks = try repeatChar(alloc, '`', @max(@as(usize, 1), longestRun(text, '`') + 1));
-    const pad = std.mem.indexOfNone(u8, text, " ") != null and
-        (text[0] == '`' or text[0] == ' ' or text[text.len - 1] == '`' or text[text.len - 1] == ' ');
-    return if (pad)
-        std.fmt.allocPrint(alloc, "{s} {s} {s}", .{ ticks, text, ticks })
-    else
-        std.fmt.allocPrint(alloc, "{s}{s}{s}", .{ ticks, text, ticks });
-}
-
-fn codeFence(alloc: std.mem.Allocator, text: []const u8) error{OutOfMemory}![]u8 {
-    const ticks = try repeatChar(alloc, '`', @max(@as(usize, 3), longestRun(text, '`') + 1));
-    const separator = if (text.len == 0 or std.mem.endsWith(u8, text, "\n")) "" else "\n";
-    return std.fmt.allocPrint(alloc, "{s}\n{s}{s}{s}", .{ ticks, text, separator, ticks });
-}
-
-/// True when `text` has a blank line — a line holding only spaces, tabs or
-/// carriage returns — followed by non-whitespace content. A single-block
-/// `bc. ` signature "ends with a blank line" (textile-spec, Block
-/// quotations), so the tail would reach the downstream parser as ordinary
-/// Textile; only that shape needs the extended `bc..` signature, which holds
-/// until the next block signature or EOF. Content whose blank lines trail
-/// into nothing survives the single form, so it keeps emitting it.
-fn hasContentAfterBlankLine(text: []const u8) bool {
-    var rest = text;
-    while (std.mem.indexOfScalar(u8, rest, '\n')) |nl| {
-        const line = rest[0..nl];
-        rest = rest[nl + 1 ..];
-        if (!isBlankLine(line)) continue;
-        for (rest) |c| {
-            if (c != ' ' and c != '\t' and c != '\r' and c != '\n') return true;
-        }
-    }
-    return false;
-}
-
-fn isBlankLine(line: []const u8) bool {
-    for (line) |c| {
-        if (c != ' ' and c != '\t' and c != '\r') return false;
-    }
-    return true;
-}
-
-fn longestRun(text: []const u8, char: u8) usize {
-    var longest: usize = 0;
-    var run: usize = 0;
-    for (text) |c| {
-        run = if (c == char) run + 1 else 0;
-        longest = @max(longest, run);
-    }
-    return longest;
-}
-
-fn emitList(
-    alloc: std.mem.Allocator,
-    d: *diag.Diagnostic,
-    template: []const u8,
-    call: parse.FilterCall,
-    input: std.json.Value,
-    ordered: bool,
-    format: Format,
-) error{ Template, OutOfMemory }![]u8 {
-    const arr = switch (input) {
-        .array => |a| a,
-        else => return failRender(alloc, d, template, call.offset, "filter '{s}' expects an array, but got {s}", .{ call.name, typeName(input) }),
-    };
-    var buf = std.ArrayList(u8).empty;
-    errdefer buf.deinit(alloc);
-    try emitListLevel(alloc, d, template, call, arr.items, ordered, format, 1, 0, &buf);
-    return buf.toOwnedSlice(alloc);
-}
-
-fn emitListLevel(
-    alloc: std.mem.Allocator,
-    d: *diag.Diagnostic,
-    template: []const u8,
-    call: parse.FilterCall,
-    items: []const std.json.Value,
-    ordered: bool,
-    format: Format,
-    depth: usize,
-    ordered_indent: usize,
-    buf: *std.ArrayList(u8),
-) error{ Template, OutOfMemory }!void {
-    var first = true;
-    var has_parent = false;
-    var number: usize = 0;
-    var child_indent = ordered_indent;
-    for (items) |item| {
-        switch (item) {
-            .array => |sub| {
-                if (depth >= 3) return failRender(alloc, d, template, call.offset, "filter '{s}' supports at most 3 levels of nesting", .{call.name});
-                if (sub.items.len == 0) continue;
-                if (!first) try buf.append(alloc, '\n');
-                first = false;
-                // A nested array with no preceding parent item cannot form a
-                // nested CommonMark list; promote its items to this level.
-                const child_depth = if (format != .textile and !has_parent) depth else depth + 1;
-                try emitListLevel(alloc, d, template, call, sub.items, ordered, format, child_depth, child_indent, buf);
-            },
-            .object => return failRender(alloc, d, template, call.offset, "filter '{s}' expects list items to be text or nested arrays", .{call.name}),
-            else => {
-                if (!first) try buf.append(alloc, '\n');
-                first = false;
-                has_parent = true;
-                if (format != .textile) {
-                    if (ordered) {
-                        try buf.appendNTimes(alloc, ' ', ordered_indent);
-                        number += 1;
-                        const marker = try std.fmt.allocPrint(alloc, "{d}. ", .{number});
-                        // Children start at this parent's content column,
-                        // which moves when its number gains another digit.
-                        child_indent = ordered_indent + marker.len;
-                        try buf.appendSlice(alloc, marker);
-                    } else {
-                        var indent = depth;
-                        while (indent > 1) : (indent -= 1) try buf.append(alloc, '\t');
-                        try buf.appendSlice(alloc, "- ");
-                    }
-                } else {
-                    const marker: u8 = if (ordered) '#' else '*';
-                    var count = depth;
-                    while (count > 0) : (count -= 1) try buf.append(alloc, marker);
-                    try buf.append(alloc, ' ');
-                }
-                const t = (try scalarText(alloc, item)).?;
-                try buf.appendSlice(alloc, if (format != .textile) try escapeMarkdownInContext(alloc, t, .list_item) else t);
-            },
-        }
-    }
-}
-
-fn emitTable(
-    alloc: std.mem.Allocator,
-    d: *diag.Diagnostic,
-    template: []const u8,
-    call: parse.FilterCall,
-    input: std.json.Value,
-    format: Format,
-) error{ Template, OutOfMemory }![]u8 {
-    const rows = switch (input) {
-        .array => |a| a,
-        else => return failRender(alloc, d, template, call.offset, "filter 'table' expects an array of rows, but got {s}", .{typeName(input)}),
-    };
-    if (rows.items.len == 0) return failRender(alloc, d, template, call.offset, "filter 'table' expects at least one row", .{});
-    const first_row = switch (rows.items[0]) {
-        .array => |a| a,
-        else => return failRender(alloc, d, template, call.offset, "filter 'table' expects each row to be an array of cells", .{}),
-    };
-    const width = first_row.items.len;
-    if (width == 0) return failRender(alloc, d, template, call.offset, "filter 'table' expects at least one cell per row", .{});
-
-    var buf = std.ArrayList(u8).empty;
-    errdefer buf.deinit(alloc);
-
-    if (format == .gfm) {
-        // Match knap 0.6.0's no-argument table: an empty header, plain
-        // single-hyphen delimiters (valid GFM), and all input rows in the body.
-        try buf.append(alloc, '|');
-        for (0..width) |_| try buf.appendSlice(alloc, "  |");
-        try buf.appendSlice(alloc, "\n|");
-        for (0..width) |_| try buf.appendSlice(alloc, " - |");
-        try buf.append(alloc, '\n');
-    }
-
-    for (rows.items, 0..) |row_value, r| {
-        if (r > 0) try buf.append(alloc, '\n');
-        const row = switch (row_value) {
-            .array => |a| a,
-            else => return failRender(alloc, d, template, call.offset, "filter 'table' expects each row to be an array of cells", .{}),
-        };
-        if (row.items.len != width) {
-            return failRender(alloc, d, template, call.offset, "filter 'table' expects every row to have the same number of cells (row {d} has {d}, expected {d})", .{ r + 1, row.items.len, width });
-        }
-        if (format == .textile) {
-            try buf.append(alloc, '|');
-            for (row.items) |cell| {
-                const t = (try scalarText(alloc, cell)) orelse
-                    return failRender(alloc, d, template, call.offset, "filter 'table' expects text cells", .{});
-                if (std.mem.indexOfScalar(u8, t, '|') != null) {
-                    return failRender(alloc, d, template, call.offset, "filter 'table' cell must not contain '|'", .{});
-                }
-                if (std.mem.indexOfScalar(u8, t, '\n') != null) {
-                    return failRender(alloc, d, template, call.offset, "filter 'table' cell must not contain a newline", .{});
-                }
-                if (r == 0) try buf.appendSlice(alloc, "_. ");
-                try buf.appendSlice(alloc, t);
-                try buf.append(alloc, '|');
-            }
-        } else {
-            if (format == .gfm) {
-                try buf.append(alloc, '|');
-            } else {
-                // Strict CommonMark has no pipe tables; retain HTML tables.
-                if (r == 0) {
-                    try buf.appendSlice(alloc, "<table>\n<thead>\n");
-                } else if (r == 1) {
-                    try buf.appendSlice(alloc, "</thead>\n<tbody>\n");
-                }
-                try buf.appendSlice(alloc, "<tr>");
-            }
-            for (row.items) |cell| {
-                const t = (try scalarText(alloc, cell)) orelse
-                    return failRender(alloc, d, template, call.offset, "filter 'table' expects text cells", .{});
-                if (std.mem.indexOfAny(u8, t, "|\n") != null) {
-                    return failRender(alloc, d, template, call.offset, "filter 'table' cell must not contain '|' or a newline", .{});
-                }
-                if (format == .gfm) {
-                    try buf.append(alloc, ' ');
-                    try buf.appendSlice(alloc, try escapeMarkdown(alloc, t));
-                    try buf.appendSlice(alloc, " |");
-                } else {
-                    try buf.appendSlice(alloc, if (r == 0) "<th>" else "<td>");
-                    for (t) |c| {
-                        try buf.appendSlice(alloc, switch (c) {
-                            '&' => "&amp;",
-                            '<' => "&lt;",
-                            '>' => "&gt;",
-                            '"' => "&quot;",
-                            else => &.{c},
-                        });
-                    }
-                    try buf.appendSlice(alloc, if (r == 0) "</th>" else "</td>");
-                }
-            }
-            if (format == .markdown) try buf.appendSlice(alloc, "</tr>");
-        }
-    }
-    if (format == .markdown) {
-        try buf.appendSlice(alloc, if (rows.items.len > 1) "\n</tbody>\n</table>" else "\n</thead>\n</table>");
-    }
-    return buf.toOwnedSlice(alloc);
 }

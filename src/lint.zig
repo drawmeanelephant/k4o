@@ -101,14 +101,14 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "empty-logic-tag",
             .construct = "logic tag `{% ... %}`",
-            .why = "a logic tag needs a keyword — if, elseif, else, endif, for or endfor — followed by its expression",
+            .why = "a logic tag needs a keyword — if, elseif, else, endif, for, endfor or set — followed by its expression",
             .example = "{% if draft %}Draft{% endif %}",
         };
     } else if (startsWith(detail, "nesting too deep")) {
         teaching = .{
             .rule = "nesting-too-deep",
             .construct = "block nesting",
-            .why = "if and for blocks can nest at most 64 deep; flatten the template or split it into smaller ones",
+            .why = "if and for blocks can nest at most 100 deep; flatten the template or split it into smaller ones",
             .example = "{% if a %}{% for x in xs %}{{ x }}{% endfor %}{% endif %}",
         };
     } else if (eql(detail, "expected a loop variable name after 'for'")) {
@@ -194,14 +194,14 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "missing-filter-name",
             .construct = "filter pipeline",
-            .why = "after the | comes a filter name from the registry: h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table",
+            .why = "after the | comes a filter name from the knap registry — `knap help filters` lists every one",
             .example = "{{ name | bold }}",
         };
-    } else if (eql(detail, "unexpected text in output tag (expected '|' or end of tag)")) {
+    } else if (eql(detail, "unexpected text in output tag")) {
         teaching = .{
             .rule = "output-tag-trailing-text",
             .construct = "output tag `{{ ... }}`",
-            .why = "an output tag is a value followed by zero or more `| filter` stages (each optionally `:arg`); a name with spaces is one variable, so further words need a |",
+            .why = "an output tag is a value followed by zero or more `| filter` stages and `??` fallbacks; a name with spaces is one variable, so further words need a |",
             .example = "{{ name | bold }}",
         };
     } else if (eql(detail, "unterminated string literal")) {
@@ -229,7 +229,7 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "missing-filter-arg",
             .construct = "filter argument",
-            .why = "after the colon comes the argument: a quoted string, a number, or a bare word resolved against the data root",
+            .why = "after the colon come the arguments: quoted strings, numbers, bare words, `(a, b)` lists, `k:v` pairs or `x => expr` arrows",
             .example = "{{ name | link:\"https://example.com/\" }}",
         };
     } else if (eql(detail, "unclosed '[' in path") or
@@ -246,7 +246,7 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "bracket-key",
             .construct = "bracket access",
-            .why = "brackets take a number or a quoted string key only; bracket expressions that reference variables are not in the subset",
+            .why = "brackets take a number index, a quoted key, or an expression like x[loop.index0]",
             .example = "{{ authors[0].name }}",
         };
     } else if (eql(detail, "expected a variable name")) {
@@ -274,14 +274,111 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "paren-too-deep",
             .construct = "condition parentheses",
-            .why = "conditions nest parentheses at most 32 deep",
+            .why = "condition expressions nest at most 100 deep",
             .example = "{% if (a or b) and c %}…{% endif %}",
+        };
+    } else if (eql(detail, "expected a variable name after 'set'")) {
+        teaching = .{
+            .rule = "set-missing-var",
+            .construct = "`{% set %}` tag",
+            .why = "set binds a name: {% set name = expression %} — the variable name comes first",
+            .example = "{% set title = post.title %}",
+        };
+    } else if (eql(detail, "expected '=' in set tag")) {
+        teaching = .{
+            .rule = "set-missing-eq",
+            .construct = "`{% set %}` tag",
+            .why = "a set tag assigns with a single `=` between the name and the expression",
+            .example = "{% set title = post.title %}",
+        };
+    } else if (eql(detail, "unexpected text after the set expression")) {
+        teaching = .{
+            .rule = "set-trailing-text",
+            .construct = "`{% set %}` tag",
+            .why = "a set tag holds exactly `set <name> = <expression>` with nothing after the expression",
+            .example = "{% set total = price %}",
+        };
+    } else if (eql(detail, "expected a filter argument after ':'") or
+        eql(detail, "expected a filter argument"))
+    {
+        teaching = .{
+            .rule = "missing-filter-arg",
+            .construct = "filter argument",
+            .why = "after the colon come the arguments: quoted strings, numbers, bare words, `(a, b)` lists, `k:v` pairs or `x => expr` arrows",
+            .example = "{{ name | link:\"https://example.com/\" }}",
+        };
+    } else if (eql(detail, "expected a filter argument inside '()'")) {
+        teaching = .{
+            .rule = "filter-args-empty",
+            .construct = "filter arguments",
+            .why = "an empty `()` is not an argument list — pass at least one argument or drop the parentheses",
+            .example = "{{ name | link:\"https://example.com/\" }}",
+        };
+    } else if (eql(detail, "unclosed '(' in filter arguments")) {
+        teaching = .{
+            .rule = "filter-args-unclosed",
+            .construct = "filter arguments",
+            .why = "a parenthesized argument list `filter:(a, b)` needs its closing `)`",
+            .example = "{{ rows | table:(\"Name\", \"Role\") }}",
+        };
+    } else if (eql(detail, "expected ',' or ')' in filter arguments")) {
+        teaching = .{
+            .rule = "filter-args-separator",
+            .construct = "filter arguments",
+            .why = "arguments in a `filter:(a, b)` list are separated by commas",
+            .example = "{{ rows | table:(\"Name\", \"Role\") }}",
+        };
+    } else if (eql(detail, "expected an arrow body after '=>'")) {
+        teaching = .{
+            .rule = "arrow-body",
+            .construct = "arrow expression",
+            .why = "an arrow `x => expr` needs a body after the `=>`: a path, a `({k: v})` object, or an interpolated string",
+            .example = "{{ people | map:p => p.name }}",
+        };
+    } else if (startsWith(detail, "expected") and
+        (indexOf(detail, "arrow") != null))
+    {
+        teaching = .{
+            .rule = "arrow-object",
+            .construct = "arrow object",
+            .why = "an arrow object `({k: v, \"k2\": v2})` holds `name: value` pairs separated by commas",
+            .example = "{{ people | map:p => ({name: p.name}) }}",
+        };
+    } else if (eql(detail, "unclosed '${' in string")) {
+        teaching = .{
+            .rule = "unclosed-interp",
+            .construct = "string interpolation",
+            .why = "a `${` inside a quoted string needs a path and a closing `}`",
+            .example = "{{ genres | map:g => g.name }}",
+        };
+    } else if (eql(detail, "expected a path inside '${}'")) {
+        teaching = .{
+            .rule = "interp-path",
+            .construct = "string interpolation",
+            .why = "a `${ }` interpolation holds a variable path like `${item}` or `${item.name}`",
+            .example = "{{ genres | map:g => g.name }}",
+        };
+    } else if (eql(detail, "bracket access takes a single value expression") or
+        eql(detail, "expected ']' after bracket expression"))
+    {
+        teaching = .{
+            .rule = "bracket-expr",
+            .construct = "bracket access",
+            .why = "a bracket takes one index or key — a number, a quoted key, or an expression like x[loop.index0] — then closes with ]",
+            .example = "{{ items[i] }}",
+        };
+    } else if (eql(detail, "filters are not allowed on the left side of a comparison")) {
+        teaching = .{
+            .rule = "filter-on-lhs",
+            .construct = "condition comparison",
+            .why = "a comparison's left side is a plain value — put filters on the right side or wrap the filtered value in parentheses",
+            .example = "{% if name == \"Ada\" %}…{% endif %}",
         };
     } else if (startsWith(detail, "unknown logic tag")) {
         teaching = .{
             .rule = "unknown-logic-tag",
             .construct = "logic tag `{% ... %}`",
-            .why = "the logic tags are if, elseif, else, endif, for and endfor; anything else is unknown",
+            .why = "the logic tags are if, elseif, else, endif, for, endfor and set; anything else is unknown",
             .example = "{% if draft %}Draft{% endif %}",
         };
     }
@@ -289,7 +386,7 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
     const fallback: Teaching = .{
         .rule = "unclassified-error",
         .construct = "template",
-        .why = "the parser rejected this template; README's \"Template subset\" documents the full grammar this tool implements",
+        .why = "the parser rejected this template; README's \"Template language\" documents the grammar this tool implements",
         .example = "{{ title }}",
     };
     const t = teaching orelse fallback;
@@ -316,15 +413,65 @@ fn walkNodes(
     for (nodes) |node| {
         switch (node) {
             .text => {},
-            .output => |pl| try walkPipeline(alloc, template, pl, findings),
+            .output => |chain| try walkChain(alloc, template, chain, findings),
             .ifelse => |chain| {
                 for (chain.branches) |branch| {
+                    if (branch.cond) |bc| try walkChain(alloc, template, bc, findings);
                     try walkNodes(alloc, template, branch.body, findings);
                 }
             },
-            .loop => |ln| try walkNodes(alloc, template, ln.body, findings),
+            .loop => |ln| {
+                try walkExpr(alloc, template, ln.list, findings);
+                try walkNodes(alloc, template, ln.body, findings);
+            },
+            .set => |sn| try walkChain(alloc, template, sn.expr, findings),
         }
     }
+}
+
+fn walkChain(
+    alloc: std.mem.Allocator,
+    template: []const u8,
+    chain: parse.Chain,
+    findings: *std.ArrayList(Finding),
+) Error!void {
+    for (chain.terms) |term| {
+        try walkCond(alloc, template, term.cond, findings);
+        for (term.filters) |call| try walkFilter(alloc, template, call, findings);
+    }
+}
+
+fn walkCond(
+    alloc: std.mem.Allocator,
+    template: []const u8,
+    cond: parse.Cond,
+    findings: *std.ArrayList(Finding),
+) Error!void {
+    switch (cond) {
+        .operand => |e| try walkExpr(alloc, template, e, findings),
+        .neg => |c| try walkCond(alloc, template, c.*, findings),
+        .and_ => |pair| {
+            try walkCond(alloc, template, pair.lhs.*, findings);
+            try walkCond(alloc, template, pair.rhs.*, findings);
+        },
+        .or_ => |pair| {
+            try walkCond(alloc, template, pair.lhs.*, findings);
+            try walkCond(alloc, template, pair.rhs.*, findings);
+        },
+        .cmp => |c| {
+            try walkExpr(alloc, template, c.lhs, findings);
+            try walkExpr(alloc, template, c.rhs, findings);
+        },
+    }
+}
+
+fn walkExpr(
+    alloc: std.mem.Allocator,
+    template: []const u8,
+    expr: parse.Expr,
+    findings: *std.ArrayList(Finding),
+) Error!void {
+    for (expr.terms) |pl| try walkPipeline(alloc, template, pl, findings);
 }
 
 fn walkPipeline(
@@ -333,8 +480,19 @@ fn walkPipeline(
     pl: parse.Pipeline,
     findings: *std.ArrayList(Finding),
 ) Error!void {
-    for (pl.filters) |call| {
-        const entry = findEntry(call.name) orelse {
+    for (pl.filters) |call| try walkFilter(alloc, template, call, findings);
+}
+
+/// Registry checks for one filter call — unknown-name and blocked-name
+/// findings (tail filters on `??`/`==` results walk through here too).
+fn walkFilter(
+    alloc: std.mem.Allocator,
+    template: []const u8,
+    call: parse.FilterCall,
+    findings: *std.ArrayList(Finding),
+) Error!void {
+    {
+        if (!filters.isRegistered(call.name)) {
             const pos = diag.positionOf(template, call.offset);
             try findings.append(alloc, .{
                 .rule = "unknown-filter",
@@ -343,129 +501,37 @@ fn walkPipeline(
                 .column = pos.column,
                 .detail = try std.fmt.allocPrint(alloc, "no filter named \"{s}\"", .{call.name}),
                 .construct = "filter",
-                .why = "the filter registry is h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table — filter names come from the documented subset, not from imagination",
+                .why = "filter names come from the knap registry — see `k4o init` for the full list or `knap help filters`",
                 .example = "{{ text | bold }}",
             });
-            continue;
-        };
-
-        if (!entry.takes_arg and call.arg != null) {
-            const pos = diag.positionOf(template, call.offset);
-            try findings.append(alloc, .{
-                .rule = "filter-arg-unexpected",
-                .kind = .bad_argument,
-                .line = pos.line,
-                .column = pos.column,
-                .detail = try std.fmt.allocPrint(alloc, "filter '{s}' takes no arguments", .{call.name}),
-                .construct = "filter argument",
-                .why = "only link takes an argument (a URL); every other filter in the registry stands alone after the |",
-                .example = "{{ text | bold }}",
-            });
-            continue;
+            return;
         }
-
-        if (std.mem.eql(u8, call.name, "link")) {
-            if (call.arg) |arg| {
-                try checkLinkArg(alloc, template, call, arg, findings);
-            } else {
+        for (filters.blocked_names) |b| {
+            if (std.mem.eql(u8, call.name, b)) {
                 const pos = diag.positionOf(template, call.offset);
                 try findings.append(alloc, .{
-                    .rule = "link-missing-url",
+                    .rule = "blocked-filter",
                     .kind = .bad_argument,
                     .line = pos.line,
                     .column = pos.column,
-                    .detail = "filter 'link' requires a URL argument",
-                    .construct = "`link` filter",
-                    .why = "link pairs the input text with a destination; the URL comes after the colon as a quoted string, a number, or a bare word naming a top-level data key",
-                    .example = "{{ name | link:url }}",
+                    .detail = try std.fmt.allocPrint(alloc, "filter '{s}' is not supported by k4o", .{call.name}),
+                    .construct = "filter",
+                    .why = "this filter needs a host environment (DOM APIs or a vault resolver) that an embeddable engine does not have — it will fail at render time",
+                    .example = "{{ text | strip_md }}",
                 });
             }
         }
+        for (call.params) |prm| {
+            switch (prm) {
+                .value => |e| try walkExpr(alloc, template, e.*, findings),
+                .pair => |pr| {
+                    try walkExpr(alloc, template, pr.key.*, findings);
+                    try walkExpr(alloc, template, pr.value.*, findings);
+                },
+                .arrow => {},
+            }
+        }
     }
-}
-
-/// Statically checks the `link` URL rules that a literal argument already
-/// violates. A bare word is resolved against the data at render time, so it
-/// is not lintable here.
-fn checkLinkArg(
-    alloc: std.mem.Allocator,
-    template: []const u8,
-    call: parse.FilterCall,
-    arg: parse.Arg,
-    findings: *std.ArrayList(Finding),
-) Error!void {
-    const url = switch (arg) {
-        .bare => return,
-        .string => |s| s,
-        .number => return,
-    };
-    const pos = diag.positionOf(template, call.offset);
-    if (url.len == 0) {
-        try findings.append(alloc, .{
-            .rule = "link-url-text",
-            .kind = .bad_argument,
-            .line = pos.line,
-            .column = pos.column,
-            .detail = "filter 'link' URL must not be empty",
-            .construct = "`link` filter URL",
-            .why = "an empty URL cannot link anywhere; give the destination as a quoted string, a number, or a bare word naming a top-level data key",
-            .example = "{{ name | link:\"https://example.com/\" }}",
-        });
-        return;
-    }
-    if (filters.urlProblem(url)) |problem| {
-        const teaching = switch (problem) {
-            .leading_angle => .{
-                "filter 'link' URL must not start with '<'",
-                "a leading '<' is CommonMark's angle-bracket destination syntax, so the rendered link would go somewhere else; percent-encode it (%3C) or choose a URL without it",
-                "{{ name | link:\"https://example.com/\" }}",
-            },
-            .whitespace_or_dquote => .{
-                "filter 'link' URL must not contain whitespace or a double quote",
-                "whitespace and double quotes break the Textile link form; percent-encode them (a space becomes %20) or choose a URL that needs neither",
-                "{{ name | link:\"https://example.com/my%20post\" }}",
-            },
-            .control_char => .{
-                "filter 'link' URL must not contain ASCII control characters",
-                "ASCII control characters break the link destination and the link silently disappears from the output; percent-encode them as %XX or choose a URL without them",
-                "{{ name | link:\"https://example.com/\" }}",
-            },
-        };
-        try findings.append(alloc, .{
-            .rule = "link-url-text",
-            .kind = .bad_argument,
-            .line = pos.line,
-            .column = pos.column,
-            .detail = teaching[0],
-            .construct = "`link` filter URL",
-            .why = teaching[1],
-            .example = teaching[2],
-        });
-        return;
-    }
-    if (filters.hasBlockedScheme(url)) {
-        try findings.append(alloc, .{
-            .rule = "link-scheme",
-            .kind = .bad_argument,
-            .line = pos.line,
-            .column = pos.column,
-            .detail = try std.fmt.allocPrint(
-                alloc,
-                "filter 'link' refuses the URL scheme '{s}:', which can execute script in the Textile renderer",
-                .{try filters.schemeName(alloc, url)},
-            ),
-            .construct = "`link` filter URL",
-            .why = "javascript:, vbscript: and data: URLs execute when the output is rendered, so link refuses them at the source; navigational schemes (http:, https:, mailto:, ftp:, file:) and relative paths pass",
-            .example = "{{ name | link:\"https://example.com/\" }}",
-        });
-    }
-}
-
-fn findEntry(name: []const u8) ?filters.Entry {
-    for (filters.registry()) |e| {
-        if (std.mem.eql(u8, e.name, name)) return e;
-    }
-    return null;
 }
 
 fn eql(a: []const u8, b: []const u8) bool {
@@ -478,4 +544,8 @@ fn startsWith(a: []const u8, prefix: []const u8) bool {
 
 fn endsWith(a: []const u8, suffix: []const u8) bool {
     return std.mem.endsWith(u8, a, suffix);
+}
+
+fn indexOf(a: []const u8, needle: []const u8) ?usize {
+    return std.mem.indexOf(u8, a, needle);
 }

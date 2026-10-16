@@ -1,36 +1,660 @@
 [
-  {"name":"empty-template","template":"","data":{}},
-  {"name":"empty-data","template":"{{ absent }}","data":{}},
-  {"name":"missing-variable","template":"Before {{ absent }} after","data":{}},
-  {"name":"plain-variable","template":"{{ name }}!","data":{"name":"Ada"}},
-  {"name":"nested-variable","template":"{{ item.title }}","data":{"item":{"title":"Note"}}},
-  {"name":"if-true","template":"A {% if on %}B{% endif %} C","data":{"on":true}},
-  {"name":"if-false","template":"A {% if on %}B{% else %}Z{% endif %} C","data":{"on":false}},
-  {"name":"comment","template":"A {# ignored #} B","data":{}},
-  {"name":"comment-whitespace-marker","template":"A {#- ignored -#} B","data":{}},
-  {"name":"whitespace-inline","template":"pre\n{% if ok %}yes{% endif %}\npost","data":{"ok":true}},
-  {"name":"whitespace-loop","template":"{% for item in items %}{{ item }}{% endfor %}","data":{"items":["a","b","c"]}},
-  {"name":"nested-loops","template":"{% for row in rows %}{% for cell in row %}{{ cell }};{% endfor %}{% endfor %}","data":{"rows":[["a","b"],["c"]]}},
-  {"name":"empty-loop","template":"A{% for x in xs %}{{ x }}{% endfor %}B","data":{"xs":[]}},
-  {"name":"heading-1","template":"{{ text | h1 }}","data":{"text":"Title"}},
-  {"name":"heading-2","template":"{{ text | h2 }}","data":{"text":"Title"}},
-  {"name":"heading-3","template":"{{ text | h3 }}","data":{"text":"Title"}},
-  {"name":"heading-4","template":"{{ text | h4 }}","data":{"text":"Title"}},
-  {"name":"heading-5","template":"{{ text | h5 }}","data":{"text":"Title"}},
-  {"name":"heading-6","template":"{{ text | h6 }}","data":{"text":"Title"}},
-  {"name":"bold-word","template":"{{ text | bold }}","data":{"text":"watch out"}},
-  {"name":"italic-word","template":"{{ text | italic }}","data":{"text":"very"}},
-  {"name":"code-word","template":"{{ text | code }}","data":{"text":"zig build"}},
-  {"name":"code-backtick","template":"{{ text | code }}","data":{"text":"a`b"}},
-  {"name":"blockquote","template":"{{ text | blockquote }}","data":{"text":"A quote"}},
-  {"name":"list-basic","template":"{{ items | list }}","data":{"items":["red","blue"]}},
-  {"name":"list-empty","template":"{{ items | list }}","data":{"items":[]}},
-  {"name":"list-nested","template":"{{ items | list }}","data":{"items":["red",["blue","green"]]}},
-  {"name":"chain-italic-heading","template":"{{ text | italic | h2 }}","data":{"text":"Title"}},
-  {"name":"unclosed-if","template":"{% if x %}oops","data":{},"status":"error"},
-  {"name":"unclosed-for","template":"{% for x in xs %}oops","data":{"xs":[]},"status":"error"},
-  {"name":"unclosed-output","template":"{{ missing","data":{},"status":"error"},
-  {"name":"unknown-filter","template":"{{ text | nonexistent_filter }}","data":{"text":"x"},"status":"error"},
-  {"name":"malformed-whitespace-control","template":"A {%- if ok -%} B {%- endif -%} C","data":{"ok":true},"status":"error"},
-  {"name":"loop-nonarray","template":"{% for x in xs %}{{ x }}{% endfor %}","data":{"xs":1},"status":"error"}
+  {
+    "name": "empty-template",
+    "template": "",
+    "data": {}
+  },
+  {
+    "name": "empty-data",
+    "template": "{{ absent }}",
+    "data": {}
+  },
+  {
+    "name": "missing-variable",
+    "template": "Before {{ absent }} after",
+    "data": {}
+  },
+  {
+    "name": "plain-variable",
+    "template": "{{ name }}!",
+    "data": {
+      "name": "Ada"
+    }
+  },
+  {
+    "name": "nested-variable",
+    "template": "{{ item.title }}",
+    "data": {
+      "item": {
+        "title": "Note"
+      }
+    }
+  },
+  {
+    "name": "if-true",
+    "template": "A {% if on %}B{% endif %} C",
+    "data": {
+      "on": true
+    }
+  },
+  {
+    "name": "if-false",
+    "template": "A {% if on %}B{% else %}Z{% endif %} C",
+    "data": {
+      "on": false
+    }
+  },
+  {
+    "name": "comment",
+    "template": "A {# ignored #} B",
+    "data": {}
+  },
+  {
+    "name": "comment-whitespace-marker",
+    "template": "A {#- ignored -#} B",
+    "data": {}
+  },
+  {
+    "name": "whitespace-inline",
+    "template": "pre\n{% if ok %}yes{% endif %}\npost",
+    "data": {
+      "ok": true
+    }
+  },
+  {
+    "name": "whitespace-loop",
+    "template": "{% for item in items %}{{ item }}{% endfor %}",
+    "data": {
+      "items": [
+        "a",
+        "b",
+        "c"
+      ]
+    }
+  },
+  {
+    "name": "nested-loops",
+    "template": "{% for row in rows %}{% for cell in row %}{{ cell }};{% endfor %}{% endfor %}",
+    "data": {
+      "rows": [
+        [
+          "a",
+          "b"
+        ],
+        [
+          "c"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "empty-loop",
+    "template": "A{% for x in xs %}{{ x }}{% endfor %}B",
+    "data": {
+      "xs": []
+    }
+  },
+  {
+    "name": "heading-1",
+    "template": "{{ text | h1 }}",
+    "data": {
+      "text": "Title"
+    }
+  },
+  {
+    "name": "heading-2",
+    "template": "{{ text | h2 }}",
+    "data": {
+      "text": "Title"
+    }
+  },
+  {
+    "name": "heading-3",
+    "template": "{{ text | h3 }}",
+    "data": {
+      "text": "Title"
+    }
+  },
+  {
+    "name": "heading-4",
+    "template": "{{ text | h4 }}",
+    "data": {
+      "text": "Title"
+    }
+  },
+  {
+    "name": "heading-5",
+    "template": "{{ text | h5 }}",
+    "data": {
+      "text": "Title"
+    }
+  },
+  {
+    "name": "heading-6",
+    "template": "{{ text | h6 }}",
+    "data": {
+      "text": "Title"
+    }
+  },
+  {
+    "name": "bold-word",
+    "template": "{{ text | bold }}",
+    "data": {
+      "text": "watch out"
+    }
+  },
+  {
+    "name": "italic-word",
+    "template": "{{ text | italic }}",
+    "data": {
+      "text": "very"
+    }
+  },
+  {
+    "name": "code-word",
+    "template": "{{ text | code }}",
+    "data": {
+      "text": "zig build"
+    }
+  },
+  {
+    "name": "code-backtick",
+    "template": "{{ text | code }}",
+    "data": {
+      "text": "a`b"
+    }
+  },
+  {
+    "name": "blockquote",
+    "template": "{{ text | blockquote }}",
+    "data": {
+      "text": "A quote"
+    }
+  },
+  {
+    "name": "list-basic",
+    "template": "{{ items | list }}",
+    "data": {
+      "items": [
+        "red",
+        "blue"
+      ]
+    }
+  },
+  {
+    "name": "list-empty",
+    "template": "{{ items | list }}",
+    "data": {
+      "items": []
+    }
+  },
+  {
+    "name": "list-nested",
+    "template": "{{ items | list }}",
+    "data": {
+      "items": [
+        "red",
+        [
+          "blue",
+          "green"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "chain-italic-heading",
+    "template": "{{ text | italic | h2 }}",
+    "data": {
+      "text": "Title"
+    }
+  },
+  {
+    "name": "unclosed-if",
+    "template": "{% if x %}oops",
+    "data": {},
+    "status": "error"
+  },
+  {
+    "name": "unclosed-for",
+    "template": "{% for x in xs %}oops",
+    "data": {
+      "xs": []
+    },
+    "status": "error"
+  },
+  {
+    "name": "unclosed-output",
+    "template": "{{ missing",
+    "data": {},
+    "status": "error"
+  },
+  {
+    "name": "unknown-filter",
+    "template": "{{ text | nonexistent_filter }}",
+    "data": {
+      "text": "x"
+    },
+    "status": "error"
+  },
+  {
+    "name": "malformed-whitespace-control",
+    "template": "A {%- if ok -%} B {%- endif -%} C",
+    "data": {
+      "ok": true
+    },
+    "status": "error"
+  },
+  {
+    "name": "loop-nonarray",
+    "template": "{% for x in xs %}{{ x }}{% endfor %}",
+    "data": {
+      "xs": 1
+    },
+    "status": "error"
+  },
+  {
+    "name": "fallback-missing",
+    "template": "{{ x ?? \"X\" }}",
+    "data": {}
+  },
+  {
+    "name": "fallback-chain",
+    "template": "{{ a ?? b ?? \"C\" }}",
+    "data": {
+      "b": "B"
+    }
+  },
+  {
+    "name": "fallback-falsy",
+    "template": "{{ x ?? \"back\" }}",
+    "data": {
+      "x": 0
+    }
+  },
+  {
+    "name": "fallback-empty-str",
+    "template": "{{ x ?? \"back\" }}",
+    "data": {
+      "x": ""
+    }
+  },
+  {
+    "name": "set-basic",
+    "template": "{% set t = \"hi\" %}{{ t }}",
+    "data": {}
+  },
+  {
+    "name": "set-expr",
+    "template": "{% set t = a.b.c %}{{ t }}",
+    "data": {
+      "a": {
+        "b": {
+          "c": 3
+        }
+      }
+    }
+  },
+  {
+    "name": "set-filtered",
+    "template": "{% set u = x | bold %}{{ u }}",
+    "data": {
+      "x": "abc"
+    }
+  },
+  {
+    "name": "set-scope-loop",
+    "template": "{% set n = 0 %}{% for i in xs %}{% set n = i %}{% endfor %}{{ n }}",
+    "data": {
+      "xs": [
+        1,
+        2,
+        3
+      ]
+    }
+  },
+  {
+    "name": "bracket-dynamic",
+    "template": "{{ xs[loop.index0] }}",
+    "data": {
+      "xs": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "bracket-var-key",
+    "template": "{{ obj[k] }}",
+    "data": {
+      "obj": {
+        "p": 1
+      },
+      "k": "p"
+    }
+  },
+  {
+    "name": "bracket-str-index",
+    "template": "{{ xs[\"1\"] }}",
+    "data": {
+      "xs": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "item-index",
+    "template": "{% for i in xs %}{{ i_index }}:{{ i }} {% endfor %}",
+    "data": {
+      "xs": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "loop-meta",
+    "template": "{% for i in xs %}{{ loop.index }}/{{ loop.index0 }}/{{ loop.length }}/{{ loop.first }}/{{ loop.last }};{% endfor %}",
+    "data": {
+      "xs": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "ws-standalone-for",
+    "template": "A\n{% for i in xs %}\n  = {{ i }}\n{% endfor %}\nZ",
+    "data": {
+      "xs": [
+        "x",
+        "y"
+      ]
+    }
+  },
+  {
+    "name": "ws-indented-for",
+    "template": "A\n  {% for i in xs %}\n  = {{ i }}\n  {% endfor %}\nZ",
+    "data": {
+      "xs": [
+        "x",
+        "y"
+      ]
+    }
+  },
+  {
+    "name": "ws-nested-for",
+    "template": "{% for s in ss %}\n+ {{ s.t }}\n  {% for i in s.is %}\n  = {{ i }}\n  {% endfor %}\n{% endfor %}\nZ",
+    "data": {
+      "ss": [
+        {
+          "t": "A",
+          "is": [
+            "x",
+            "y"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "ws-inline-if",
+    "template": "X{% if t %} a b {% endif %}Y",
+    "data": {
+      "t": true
+    }
+  },
+  {
+    "name": "ws-inline-for",
+    "template": "X{% for i in xs %} a {{i}} {% endfor %}Y",
+    "data": {
+      "xs": [
+        1,
+        2
+      ]
+    }
+  },
+  {
+    "name": "ws-else-col0",
+    "template": "A\n{% if t %}\n  T\n{% else %}\n  F\n{% endif %}\nZ",
+    "data": {
+      "t": false
+    }
+  },
+  {
+    "name": "ws-elseif",
+    "template": "A\n{% if a %}\n  A\n{% elseif b %}\n  B\n{% endif %}\nZ",
+    "data": {
+      "a": false,
+      "b": true
+    }
+  },
+  {
+    "name": "ws-comment-line",
+    "template": "A\n{# c #}\n  B",
+    "data": {}
+  },
+  {
+    "name": "ws-set-line",
+    "template": "A\n  {% set x = 1 %}\n  B{{ x }}",
+    "data": {}
+  },
+  {
+    "name": "eq-identity-arr",
+    "template": "{{ xs[0] == xs[0] }}{{ xs[0] == xs[1] }}",
+    "data": {
+      "xs": [
+        [
+          1
+        ],
+        [
+          1
+        ]
+      ]
+    }
+  },
+  {
+    "name": "eq-identity-obj",
+    "template": "{{ a == a }}{{ a == b }}",
+    "data": {
+      "a": {
+        "k": 1
+      },
+      "b": {
+        "k": 1
+      }
+    }
+  },
+  {
+    "name": "eq-prim",
+    "template": "{{ 1 == 1 }}{{ \"a\" == \"b\" }}{{ true == false }}",
+    "data": {}
+  },
+  {
+    "name": "contains-str",
+    "template": "{% if s contains \"ell\" %}yes{% endif %}",
+    "data": {
+      "s": "hello"
+    }
+  },
+  {
+    "name": "contains-arr",
+    "template": "{% if xs contains x %}yes{% else %}no{% endif %}",
+    "data": {
+      "xs": [
+        "a",
+        "b"
+      ],
+      "x": "a"
+    }
+  },
+  {
+    "name": "num-exp-large",
+    "template": "{{ x }}",
+    "data": {
+      "x": 1e+308
+    }
+  },
+  {
+    "name": "num-exp-small",
+    "template": "{{ x }}",
+    "data": {
+      "x": 5e-324
+    }
+  },
+  {
+    "name": "num-int-vs-float",
+    "template": "{{ a }}{{ b }}{{ c }}",
+    "data": {
+      "a": 1,
+      "b": 1.5,
+      "c": -0.25
+    }
+  },
+  {
+    "name": "singleton-unwrap",
+    "template": "{{ x }}{{ y }}",
+    "data": {
+      "x": [
+        "a"
+      ],
+      "y": [
+        [
+          1,
+          2
+        ]
+      ]
+    }
+  },
+  {
+    "name": "arr-serialize",
+    "template": "{{ x }}",
+    "data": {
+      "x": [
+        "a",
+        1,
+        true,
+        null,
+        {
+          "k": "v"
+        }
+      ]
+    }
+  },
+  {
+    "name": "obj-serialize",
+    "template": "{{ x }}",
+    "data": {
+      "x": {
+        "a": 1,
+        "b": [
+          "c"
+        ]
+      }
+    }
+  },
+  {
+    "name": "str-json-array",
+    "template": "{{ x | list }}",
+    "data": {
+      "x": "[\"a\",\"b\"]"
+    }
+  },
+  {
+    "name": "filter-on-literal",
+    "template": "{{ \"x\" | bold }}",
+    "data": {}
+  },
+  {
+    "name": "filter-chain-type",
+    "template": "{{ x | escape_md | bold }}",
+    "data": {
+      "x": [
+        "a",
+        "b"
+      ]
+    }
+  },
+  {
+    "name": "param-paren",
+    "template": "{{ rows | table:(\"N\", \"R\") }}",
+    "data": {
+      "rows": [
+        [
+          "a",
+          "b"
+        ]
+      ]
+    }
+  },
+  {
+    "name": "param-bare-var",
+    "template": "{{ x | link:label }}",
+    "data": {
+      "x": "u",
+      "label": "TXT"
+    }
+  },
+  {
+    "name": "if-not",
+    "template": "{% if not t %}N{% else %}Y{% endif %}",
+    "data": {
+      "t": false
+    }
+  },
+  {
+    "name": "if-cmp-chain",
+    "template": "{% if a and not b %}Y{% endif %}",
+    "data": {
+      "a": true,
+      "b": false
+    }
+  },
+  {
+    "name": "dash-rejected",
+    "template": "{{- x -}}",
+    "data": {
+      "x": 1
+    },
+    "status": "error"
+  },
+  {
+    "name": "dash-rejected-logic",
+    "template": "{%- if t -%}a{%- endif -%}",
+    "data": {
+      "t": true
+    },
+    "status": "error"
+  },
+  {
+    "name": "obj-unwrap-object",
+    "template": "{{ x | link }}",
+    "data": {
+      "x": {
+        "https://a": "A",
+        "https://b": "B"
+      }
+    }
+  },
+  {
+    "name": "date-z-format",
+    "template": "{{ x | date:\"YYYY/MM/DD HH:mm:ss Z\" }}\n{{ x | date:\"Z ZZ\" }}",
+    "data": {
+      "x": "2024-12-01T15:04:05"
+    }
+  },
+  {
+    "name": "date-z-input",
+    "template": "{{ x | date:\"YYYY-MM-DD HH:mm\" }}",
+    "data": {
+      "x": "2024-12-01T15:04:05Z"
+    }
+  },
+  {
+    "name": "date-time-only",
+    "template": "{{ x | date:\"HH:mm:ss\" }}\n{{ x | date:\"h:mm A\" }}",
+    "data": {
+      "x": "2024-12-01T15:04:05Z"
+    }
+  }
 ]

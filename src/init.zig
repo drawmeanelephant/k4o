@@ -21,7 +21,7 @@ const std = @import("std");
 
 /// Version of the teaching-file set. Bump when content is superseded; older
 /// on-disk copies are archived and rewritten.
-pub const set_version: u32 = 4;
+pub const set_version: u32 = 5;
 
 pub const marker_prefix = "<!-- k4o init ";
 pub const marker_suffix = " -->";
@@ -36,10 +36,10 @@ pub const FileDef = struct {
 };
 
 pub const files = [_]FileDef{
-    .{ .name = "knap-tour.md", .version = 3, .content = @embedFile("init/knap-tour.md") },
-    .{ .name = "knap-templates.md", .version = 2, .content = @embedFile("init/knap-templates.md") },
-    .{ .name = "knap-examples.md", .version = 1, .content = @embedFile("init/knap-examples.md") },
-    .{ .name = "knap-gotchas.md", .version = 4, .content = @embedFile("init/knap-gotchas.md") },
+    .{ .name = "knap-tour.md", .version = 4, .content = @embedFile("init/knap-tour.md") },
+    .{ .name = "knap-templates.md", .version = 4, .content = @embedFile("init/knap-templates.md") },
+    .{ .name = "knap-examples.md", .version = 4, .content = @embedFile("init/knap-examples.md") },
+    .{ .name = "knap-gotchas.md", .version = 5, .content = @embedFile("init/knap-gotchas.md") },
 };
 
 pub const Action = enum {
@@ -58,6 +58,9 @@ pub const Report = struct {
     action: Action,
     /// Version found on disk, when the file carried a parseable marker.
     disk_version: ?u32 = null,
+    /// Version written (only for `.archived`; set to the file's own
+    /// FileDef version so mixed-version sets report accurately).
+    to_version: ?u32 = null,
     /// Relative path of the archived old copy (only for `.archived`).
     archive_path: ?[]const u8 = null,
 };
@@ -152,6 +155,7 @@ pub fn scaffold(
                     .file = def.name,
                     .action = .archived,
                     .disk_version = marker.?.version,
+                    .to_version = def.version,
                     .archive_path = archive_path,
                 });
             },

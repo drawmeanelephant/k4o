@@ -1,1 +1,1 @@
-See [Example](url) for more.
+See [url](Example) for more.

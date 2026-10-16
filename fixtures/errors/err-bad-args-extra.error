@@ -1,1 +1,1 @@
-bad argument at line 1, column 8: filter 'bold' takes no arguments
+bad argument at line 1, column 8: filter 'bold' accepts '_' or no argument

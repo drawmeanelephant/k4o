@@ -1,9 +1,5 @@
-<table>
-<thead>
-<tr><th>name</th><th>age</th></tr>
-</thead>
-<tbody>
-<tr><td>Walter</td><td>5</td></tr>
-<tr><td>Florence</td><td>6</td></tr>
-</tbody>
-</table>
+|  |  |
+| - | - |
+| name | age |
+| Walter | 5 |
+| Florence | 6 |
