@@ -814,15 +814,13 @@ fn mdHtml(it: *Interp, s: []const u8) Error![]const u8 {
 fn mdInline(it: *Interp, s: []const u8) Error![]const u8 {
     var cur = try mdInlinePass(it, s, .{ .code = true, .caret = true });
     while (true) {
-        // Reruns drop only nonempty spans — an empty `**` that was emitted
-        // as _-span content stays put (`==**~` keeps its `**`).
-        const next = try mdInlinePass(it, cur, .{ .nonempty = true });
+        const next = try mdInlinePass(it, cur, .{});
         if (next.len == cur.len and std.mem.eql(u8, next, cur)) return cur;
         cur = next;
     }
 }
 
-const InlineCfg = struct { code: bool = false, caret: bool = false, nonempty: bool = false };
+const InlineCfg = struct { code: bool = false, caret: bool = false };
 
 fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]const u8 {
     var out = std.ArrayList(u8).empty;
@@ -839,12 +837,14 @@ fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]con
                 continue;
             }
         } else if (c == '*' or c == '_') {
-            // `m[^m\n]*m`; an empty close can't open a longer run.
+            // `m[^m\n]*m`. A marker opened mid-run (preceded by m) can only
+            // close on a marker that ends its own run — `***x**` settles
+            // as `*xy`-style: `**` collapses, the residue `*` can't reach
+            // into the trailing run, and `**` there collapses on its own.
             var j = i + 1;
             while (j < s.len and s[j] != c and s[j] != '\n') j += 1;
-            const empty = j == i + 1;
             if (j < s.len and s[j] == c and
-                !(empty and (cfg.nonempty or (j + 1 < s.len and s[j + 1] == c))))
+                (!(i > 0 and s[i - 1] == c) or j + 1 >= s.len or s[j + 1] != c))
             {
                 try out.appendSlice(it.alloc, s[i + 1 .. j]);
                 i = j + 1;
@@ -855,7 +855,7 @@ fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]con
             var j = i + 2;
             while (j < s.len and s[j] != '~' and s[j] != '\n') j += 1;
             if (j + 1 < s.len and s[j] == '~' and s[j + 1] == '~' and
-                !(j == i + 2 and (cfg.nonempty or (j + 2 < s.len and s[j + 2] == '~'))))
+                (!(i > 0 and s[i - 1] == '~') or j + 2 >= s.len or s[j + 2] != '~'))
             {
                 try out.appendSlice(it.alloc, s[i + 2 .. j]);
                 i = j + 2;
@@ -878,8 +878,7 @@ fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]con
             while (j + 1 < s.len) : (j += 1) {
                 if (s[j] == '\n') break;
                 if (s[j] == '=' and s[j + 1] == '=' and
-                    !(j == i + 2 and
-                        (cfg.nonempty or (j + 2 < s.len and s[j + 2] == '='))))
+                    (!(i > 0 and s[i - 1] == '=') or j + 2 >= s.len or s[j + 2] != '='))
                 {
                     found = true;
                     break;
