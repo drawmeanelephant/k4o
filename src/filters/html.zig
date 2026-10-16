@@ -811,16 +811,20 @@ fn mdHtml(it: *Interp, s: []const u8) Error![]const u8 {
 /// `` `...x-****...` `` loses all four. A mid-run `m` (preceded by `m`)
 /// can only close on a run-ending marker, so `***x**` -> `*x` while
 /// `***x***` and `***x*` collapse fully.
+fn isMdMarker(c: u8) bool {
+    return c == '*' or c == '_' or c == '~' or c == '^' or c == '=' or c == '`';
+}
+
 fn mdInline(it: *Interp, s: []const u8) Error![]const u8 {
     var cur = try mdInlinePass(it, s, .{ .code = true, .caret = true });
     while (true) {
-        const next = try mdInlinePass(it, cur, .{ .nonempty = true });
+        const next = try mdInlinePass(it, cur, .{ .rerun = true });
         if (next.len == cur.len and std.mem.eql(u8, next, cur)) return cur;
         cur = next;
     }
 }
 
-const InlineCfg = struct { code: bool = false, caret: bool = false, nonempty: bool = false };
+const InlineCfg = struct { code: bool = false, caret: bool = false, rerun: bool = false };
 
 fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]const u8 {
     var out = std.ArrayList(u8).empty;
@@ -859,9 +863,10 @@ fn mdInlinePass(it: *Interp, s: []const u8, comptime cfg: InlineCfg) Error![]con
                 var j = i + 1;
                 while (j < s.len and s[j] != c and s[j] != '\n') j += 1;
                 const post = i > 0 and s[i - 1] == c;
+                const empty = j == i + 1;
                 if (j < s.len and s[j] == c and
                     (!post or j + 1 >= s.len or s[j + 1] != c) and
-                    (!cfg.nonempty or j > i + 1))
+                    !(cfg.rerun and empty and j + 1 < s.len and isMdMarker(s[j + 1])))
                 {
                     try out.appendSlice(it.alloc, s[i + 1 .. j]);
                     i = j + 1;
