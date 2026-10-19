@@ -323,19 +323,17 @@ test "corpus: fixtures render byte-exact" {
     try testing.expectEqual(@as(usize, 0), failures);
 }
 
-// oliver differs from markdown only on the HTML-passthrough filters —
-// those fixtures intentionally drift and are compared under
-// `--format oliver` by the differential runner instead.
+// oliver differs from markdown only on `comment` — Oliver ≥1.3 parses
+// `==…==`, `$…$`/`$$…$$` natively, so the markers are knap-faithful in
+// both formats now. `comment` keeps `<!-- -->` because a `%%` block only
+// opens at line start; those fixtures intentionally drift.
 const oliver_drift_names = [_][]const u8{
     "filter-comment-basic", "filter-comment-multiline",
-    "filter-highlight-basic", "filter-highlight-args",
-    "filter-math-basic", "filter-math-multiline",
-    "filter-math_block-basic",
 };
 
 test "corpus: oliver format renders without drift where the output has no extension filters" {
-    // The oliver format only differs from markdown on the HTML-passthrough
-    // filters; the corpus must render identically under it.
+    // The oliver format only differs from markdown on `comment`'s
+    // HTML passthrough; the corpus must render identically under it.
     var failures: usize = 0;
     outer: for (cases) |c| {
         for (oliver_drift_names) |dn| {

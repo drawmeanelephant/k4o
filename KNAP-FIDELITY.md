@@ -11,7 +11,7 @@ filters upstream segregates into `knap/html`.
   literal text downstream anyway. Documented alongside the DOM pair.
 - **`textile`/`gfm`: cut.** v0.1.0 was tagged on main as the final subset
   release before removal. `--format markdown` becomes the default and only
-  faithful mode; `--format oliver` adds HTML passthrough.
+  faithful mode; `--format oliver` adds an HTML passthrough for `comment`.
 - **`replace`: bounded regex engine.** Built in-repo as a separable Zig
   module (`src/zre.zig`) designed to be lifted into its own package later;
   step-capped so hostile patterns degrade to a diagnostic, not a hang.
@@ -69,11 +69,11 @@ Legend:
 | `strike` | `~~x~~` | ext — Oliver strikethrough opt-in | Small |
 | `table` | pipe table; headers from object keys or `:(h1,h2)`; `| - |` delims | ext — GFM tables built into Oliver | Medium — header derivation + shapes |
 | `table_pretty` | padded pipe table | ext — GFM tables | Medium |
-| `highlight` | `==x==`; color `==🔵x==` | html⇄ → `<mark>` in oliver mode | Small |
-| `math` / `math_block` | `$x$` / `$$…$$` | html⇄ → `<span class=math>` in oliver mode | Small-medium |
-| `comment` | `%%x%%` | html⇄ → `<!--x-->` in oliver mode | Small |
+| `highlight` | `==x==`; color `==🔵x==` | ext — Oliver `highlights` opt-in (≥1.3) | Small |
+| `math` / `math_block` | `$x$` / `$$…$$` | ext — Oliver `math` opt-in (≥1.3) | Small-medium |
+| `comment` | `%%x%%` | html⇄ → `<!--x-->` in oliver mode — a `%%` block only opens at line start in Oliver, so the passthrough is the safe emit at any column | Small |
 | `yaml` / `yaml_property` | YAML block/flow; `name: value` | data — front-matter payload; Oliver frontmatter opt-in consumes at index 0 | Medium-large — bounded YAML writer |
-| `embed` | `![[target]]` / `![[t|alias]]` | blocked — no vault resolver; bytes are dead text downstream | **Excluded** (decision: non-implementable) |
+| `embed` | `![[target]]` / `![[t|alias]]` | ext — Oliver `embeds` opt-in (≥1.3) | Implemented — needs no resolver (supersedes the earlier "can't") |
 
 ## 3. Data filters (markup-free — all implementable)
 
@@ -110,11 +110,15 @@ Legend:
 - `--format markdown` becomes the **default and faithful** mode — bytes match
   the oracle on the implemented surface. Textile default flips: breaking
   change, lands alongside the site fixes anyway.
-- `--format oliver` (new): markdown mode + HTML substitution for the three
-  non-consumables (`highlight` → `<mark>`, `math` → `<span class=math>`,
-  `comment` → `<!-- -->`) and documents which Oliver ParseOptions the output
-  assumes (`callouts`, `wikilinks`, `footnotes`, `strikethrough`,
-  `task_lists`, `frontmatter`).
+- `--format oliver` (new): markdown mode + HTML substitution for `comment`
+  (`<!-- -->`). Oliver ≥1.3 parses `==…==`, `$…$`/`$$…$$`, `![[…]]` and
+  callout fold markers natively, so the rest emits faithful knap bytes in
+  both formats; `comment` keeps the passthrough because a `%%` block only
+  opens at line start — mid-line it would leak the marker and hide what
+  follows. The output assumes Oliver ParseOptions `callouts`, `wikilinks`,
+  `embeds`, `footnotes`, `strikethrough`, `task_lists`, `highlights`,
+  `math`, `frontmatter` (or `--obsidian` plus `frontmatter`), and
+  `raw_html=allowed` for the comment passthrough.
 - `textile` / `gfm`: **cut** (decided). v0.1.0 tagged as the final release
   containing them; Oliver's opt-ins cover the original need. dogbed must
   move to markdown/oliver output.
@@ -128,8 +132,6 @@ Legend:
 - **blocked** `html_to_json`, `remove_html` — need DOM globals; upstream
   segregates them. Permanent, documented exclusion. (Every other filter
   in the registry — including `embed` — is implemented.)
-- **blocked** `embed` — excluded (decided): no resolver exists at this
-  layer; bytes emittable, semantics not.
 - **risk** `replace` regex — no stdlib regex; bounded engine (decided:
   build `src/zre.zig` as a separable step-capped module).
 - **risk** Unicode casing + UTF-16-unit counting — JS semantics vs Zig bytes;

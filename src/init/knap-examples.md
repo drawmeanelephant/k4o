@@ -1,10 +1,10 @@
-<!-- k4o init knap-examples v4 -->
+<!-- k4o init knap-examples v5 -->
 # knap worked examples
 
 The three examples shipped with k4o, end to end: template, data, and the
 exact bytes out. `--format markdown` is the default and knap-faithful;
-`--format oliver` differs only for `highlight`, `math` and `comment`
-(`<mark>`, `<span class="math">`, `<!-- -->`).
+`--format oliver` differs only for `comment` (`<!-- -->`); Oliver ≥1.3
+parses `highlight`'s `==x==` and `math`'s `$…$`/`$$…$$` natively.
 
 ## Heading — `{{ value | filter }}` and chains
 

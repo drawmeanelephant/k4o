@@ -273,15 +273,15 @@ text, offline.
 
 | Group | Filters | Notes |
 | --- | --- | --- |
-| Markup | `h1`–`h6`, `bold`, `italic`, `code`, `code_block`, `blockquote`, `list`, `link`, `image`, `hr`, `hard_break`, `escape_md`, `fragment_link` | CommonMark emitters. `code` chooses span vs fenced block (multiline or `:lang`); `list` takes `bullet`/`numbered`/`task`/`numbered-task`; `image` maps object URL keys to alt text; `fragment_link` appends `#:~:text=` anchors. |
+| Markup | `h1`–`h6`, `bold`, `italic`, `code`, `code_block`, `blockquote`, `list`, `link`, `image`, `hr`, `hard_break`, `escape_md`, `fragment_link`, `embed` | CommonMark emitters, plus Obsidian `![[x]]`/`![[x|alias]]` embeds — Oliver ≥1.3 parses them under `embeds`. `code` chooses span vs fenced block (multiline or `:lang`); `list` takes `bullet`/`numbered`/`task`/`numbered-task`; `image` maps object URL keys to alt text; `fragment_link` appends `#:~:text=` anchors. |
 | Text | `camel`, `capitalize`, `kebab`, `lower`, `pascal`, `snake`, `title`, `uncamel`, `upper`, `trim`, `truncate`, `truncatewords`, `indent`, `unescape`, `safe_name`, `encode_uri`, `decode_uri` | Casing, whitespace and URI transforms. Most recurse over arrays (and, per filter, object values): `["a","b"] \| upper` → `["A","B"]`. |
 | Numbers | `calc`, `number_format`, `round` | `calc:"+10"`, `*2`, `**3` — `+ - * / ** ^`. |
 | Dates | `date`, `date_modify`, `duration` | Format tokens, interval math (`"+1d"`), ISO 8601 durations. |
 | Collections | `compact`, `first`, `join`, `last`, `length`, `merge`, `nth`, `object`, `parse_json`, `reverse`, `slice`, `sort`, `split`, `sum`, `unique`, `where` | Typed values end to end. `nth` takes pattern syntax (`nth:3`, `nth:2n`, `nth:n+3`); `sort:"prop"` sorts object arrays; `where:("status", "draft")` filters by property. |
-| Extensions | `callout`, `wikilink`, `footnote`, `strike`, `table`, `table_pretty`, `highlight`, `math`, `math_block`, `comment` | Obsidian-flavored constructs. `table`/`table_pretty` emit pipe tables — headers from object keys or `:(h1, h2)` parameters. `highlight`, `math`/`math_block` and `comment` are the three that switch to HTML passthrough under `--format oliver`. |
+| Extensions | `callout`, `wikilink`, `footnote`, `strike`, `table`, `table_pretty`, `highlight`, `math`, `math_block`, `comment` | Obsidian-flavored constructs. `table`/`table_pretty` emit pipe tables — headers from object keys or `:(h1, h2)` parameters. `comment` is the one that switches to `<!-- -->` under `--format oliver` — Oliver ≥1.3 parses `==…==`, `$…$`/`$$…$$` natively, while a `%%` block only opens at line start so the passthrough survives mid-line values. |
 | Advanced | `map`, `template`, `replace`, `yaml`, `yaml_property` | `map` takes a property name or an arrow (`x => ({name: x.name})`); `template` interpolates `${prop}`; `replace` takes `"old":"new"` pairs or regexes (`"/[aeiou]/g"`) via a bounded, step-capped engine; `yaml`/`yaml_property` write bounded YAML (block or `flow`). |
 | HTML | `remove_attr`, `strip_attr`, `remove_tags`, `replace_tags`, `strip_tags`, `strip_md`, `stripmd` | Clean HTML inside *data* with a tag/attribute tokenizer — no DOM. `stripmd` is the `strip_md` alias. |
-| Blocked | `embed`, `remove_html`, `html_to_json` | Need a host environment — a vault resolver or DOM — that an embeddable engine does not have (upstream segregates the DOM pair itself). Both render and lint fail them with a diagnostic naming the filter. |
+| Blocked | `remove_html`, `html_to_json` | Need a DOM that an embeddable engine does not have (upstream segregates the DOM pair itself). Both render and lint fail them with a diagnostic naming the filter. |
 
 ## k4o batch
 
@@ -429,8 +429,8 @@ k4o help tag for           # syntax and examples for one tag
 
 Still out, by design — a static Zig binary is the product:
 
-- **Host-dependent filters.** `embed` (a vault resolver), `remove_html` and
-  `html_to_json` (a DOM) are registered — `k4o help` documents them — but
+- **Host-dependent filters.** `remove_html` and `html_to_json` (a DOM)
+  are registered — `k4o help` documents them — but
   render and lint fail them with a `needs a host environment` diagnostic.
 - **Host integrations.** Browser selectors, prompt execution, Markdown
   conversion back ends — the oracle's CLI does not supply them either.

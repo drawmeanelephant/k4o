@@ -286,7 +286,7 @@ check_zero "init: teaching files drop into a working dir" "$VERIFY_DIR/34-init-f
 check_zero "init: a rerun is idempotent" "$VERIFY_DIR/34-init-rerun.log" \
   bash -c "cd '$INIT_FRESH' && '$BIN' init | grep -q '0 created, 4 untouched, 0 archived'"
 check_zero "init: supersede archives and user files are untouched" "$VERIFY_DIR/35-init-supersede.log" \
-  bash -c "cd '$INIT_SUPER' && '$BIN' init >/dev/null && printf 'random user content\n' > knap-gotchas.md && printf '<!-- k4o init knap-tour v0 -->\n# old tour\n' > knap-tour.md && '$BIN' init > init.out && grep -q 'archived to k4o-archive/' init.out && grep -q 'knap-tour v4' knap-tour.md && cmp -s 'k4o-archive'/*/knap-tour.md <(printf '<!-- k4o init knap-tour v0 -->\n# old tour\n') && cmp -s knap-gotchas.md <(printf 'random user content\n')"
+  bash -c "cd '$INIT_SUPER' && '$BIN' init >/dev/null && printf 'random user content\n' > knap-gotchas.md && printf '<!-- k4o init knap-tour v0 -->\n# old tour\n' > knap-tour.md && '$BIN' init > init.out && grep -q 'archived to k4o-archive/' init.out && grep -q 'knap-tour v5' knap-tour.md && cmp -s 'k4o-archive'/*/knap-tour.md <(printf '<!-- k4o init knap-tour v0 -->\n# old tour\n') && cmp -s knap-gotchas.md <(printf 'random user content\n')"
 
 check_zero "static x86_64-linux-musl build is statically linked" "$VERIFY_DIR/14-static.log" \
   bash -c "'$ZIG' build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl --prefix '$VERIFY_DIR/static' && file '$VERIFY_DIR/static/bin/k4o' | grep -q 'statically linked'"

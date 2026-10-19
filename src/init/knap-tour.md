@@ -1,4 +1,4 @@
-<!-- k4o init knap-tour v4 -->
+<!-- k4o init knap-tour v5 -->
 # knap in one page
 
 Knap is a template language: template + JSON data in, Markdown-family text
@@ -173,7 +173,7 @@ and examples for each.
 
 | Group | Filters |
 | --- | --- |
-| Markup | `h1`–`h6` `bold` `italic` `code` `code_block` `blockquote` `list` `link` `image` `hr` `hard_break` `escape_md` `fragment_link` |
+| Markup | `h1`–`h6` `bold` `italic` `code` `code_block` `blockquote` `list` `link` `image` `hr` `hard_break` `escape_md` `fragment_link` `embed` |
 | Extensions | `callout` `wikilink` `footnote` `strike` `table` `table_pretty` `highlight` `math` `math_block` `comment` |
 | Text | `camel` `capitalize` `kebab` `lower` `pascal` `snake` `title` `uncamel` `upper` `trim` `truncate` `truncatewords` `indent` `unescape` `safe_name` `encode_uri` `decode_uri` |
 | Numbers | `calc` `number_format` `round` |
@@ -181,7 +181,7 @@ and examples for each.
 | Collections | `compact` `first` `join` `last` `length` `merge` `nth` `object` `parse_json` `reverse` `slice` `sort` `split` `sum` `unique` `where` |
 | Advanced | `map` `template` `replace` `yaml` `yaml_property` |
 | HTML | `remove_attr` `strip_attr` `remove_tags` `replace_tags` `strip_tags` `strip_md` (+ alias `stripmd`) |
-| Blocked | `embed` `html_to_json` `remove_html` — need a host environment (DOM, vault resolver); registered so the error is explicit, and `lint` flags them |
+| Blocked | `html_to_json` `remove_html` — need a DOM an embeddable engine does not have; registered so the error is explicit, and `lint` flags them |
 
 `link` and `image` take the URL as INPUT and the label/alt text as the
 argument: `{{ url | link:"Example" }}` → `[Example](url)`. `link` refuses
@@ -196,9 +196,10 @@ k4o render t.knap --data d.json --format oliver
 ```
 
 `markdown` is the knap-faithful byte surface. `oliver` is the same bytes
-plus HTML for the three constructs plain Markdown cannot carry:
-`highlight` → `<mark>`, `math` → `<span class="math">`, `comment` →
-`<!-- -->`. There is no `textile` or `gfm` format.
+except `comment`, which stays `<!-- -->` — Oliver ≥1.3 parses `==x==`,
+`$…$`/`$$…$$` and `%%…%%` natively, but a `%%` block only opens at line
+start, so the HTML form survives mid-line values. There is no `textile`
+or `gfm` format.
 
 Rendering buffers completely: on any error stdout stays empty, the
 diagnostic (kind, line, column, detail) goes to stderr, exit is 1.

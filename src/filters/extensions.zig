@@ -206,18 +206,15 @@ fn strikeLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
 }
 
 fn commentLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
-    // oliver mode emits the HTML form Oliver consumes.
+    // oliver mode keeps the HTML form: Oliver ≥1.3 parses `%%…%%`, but a
+    // block comment only opens at line start — a multi-line value landing
+    // mid-line would leak the marker and hide what follows it. `<!-- -->`
+    // spans lines at any column.
     if (it.format == .oliver) return autoBlock("<!--", "-->", it, s);
     return autoBlock("%%", "%%", it, s);
 }
 
 fn mathLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
-    if (it.format == .oliver) {
-        if (std.mem.indexOfAny(u8, s, "\r\n") != null) {
-            return blockWrap("<div class=\"math\">", "</div>", it, s);
-        }
-        return inlineWrap("<span class=\"math\">", "</span>", it, s);
-    }
     if (std.mem.indexOfAny(u8, s, "\r\n") != null) {
         return blockWrap("$$", "$$", it, s);
     }
@@ -225,15 +222,11 @@ fn mathLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
 }
 
 fn mathBlockLeaf(_: void, it: *Interp, s: []const u8) Error![]const u8 {
-    if (it.format == .oliver) {
-        return blockWrap("<div class=\"math\">", "</div>", it, s);
-    }
     return blockWrap("$$", "$$", it, s);
 }
 
 /// `==..x..==` where the marker carries an optional color emoji.
 fn highlightLeaf(open: []const u8, it: *Interp, s: []const u8) Error![]const u8 {
-    if (it.format == .oliver) return inlineWrap("<mark>", "</mark>", it, s);
     return inlineWrap(open, "==", it, s);
 }
 

@@ -9,8 +9,7 @@ this file is for agents *working on k4o*.
 
 A Knap template engine in Zig, stdlib only — byte-compatible with
 knap 0.6.0. `template.knap + data.json → CommonMark (default, faithful)
-or oliver-format` (markdown plus HTML passthrough for highlight/math/
-comment). Sibling [Oliver](https://github.com/drawmeanelephant/oliver)
+or oliver-format` (markdown plus an HTML passthrough for comment). Sibling [Oliver](https://github.com/drawmeanelephant/oliver)
 parses the output downstream; [dogbed](https://github.com/drawmeanelephant/dogbed)
 embeds this library. The legacy subset surface (Textile/GFM) is preserved
 in release v0.1.0.
@@ -25,10 +24,12 @@ in release v0.1.0.
 3. **Every byte is charged.** All output flows through `Interp.charge()`
    so `--max-output` bounds nested-loop amplification. No write path may
    skip it.
-4. **`oliver` diverges only on extension filters.** Every construct emits
-   identical bytes in both formats except `highlight`/`math`/`comment`,
-   which emit HTML passthrough under oliver (`<mark>`, `<span class="math">`,
-   `<!-- -->`); tests assert this.
+4. **`oliver` diverges only on `comment`.** Oliver ≥1.3 parses `==…==`,
+   `$…$`/`$$…$$`, `%%…%%`, `![[…]]` and callout folds natively, so every
+   construct emits identical bytes in both formats — except `comment`,
+   which keeps `<!-- -->` under oliver because a `%%` block only opens at
+   line start (mid-line it would leak the marker and hide what follows);
+   tests assert this.
 5. **Clean-room.** The subset derives from Knap's user-facing docs only.
    Real knap is a *black-box oracle* for differential testing — its
    internals are never consulted.
