@@ -177,8 +177,7 @@ def expected_tag(name):
     if stem.startswith("filter-highlight"):
         return "mark"
     if stem.startswith("filter-comment"):
-        # `%%…%%` is removed at parse under --comments — nothing to find.
-        return None
+        return "comment-gone"
     if stem.startswith("filter-embed"):
         return "embed"
     return {
@@ -226,6 +225,11 @@ def check_commonmark(name, markdown, oliver, required=None, raw_html="rejected")
     elif required in ("math-inline", "math-display"):
         cls = "math inline" if required == "math-inline" else "math display"
         assert f'class="{cls}"' in html, f"{name}: expected class=\"{cls}\" in {html!r}"
+    elif required == "comment-gone":
+        # `--comments` removes `%%…%%` at parse — the fixtures are all
+        # comment, so nothing may survive. An accepted-but-inert flag
+        # would leave the `%%` bytes visible.
+        assert not html.strip(), f"{name}: comment bytes survived: {html!r}"
     elif required == "footnote-ref":
         assert "footnote" in html, f"{name}: expected footnote markup in {html!r}"
     elif required:

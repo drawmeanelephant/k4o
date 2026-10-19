@@ -331,6 +331,20 @@ const oliver_drift_names = [_][]const u8{
     "filter-comment-basic", "filter-comment-multiline",
 };
 
+test "corpus: oliver format keeps only the comment passthrough" {
+    // Boundary 4's one divergence, pinned by the unit suite (the
+    // differential runner also proves Oliver accepts the bytes).
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, "{\"x\":\"note\"}", .{});
+    var d = kt.Diagnostic{};
+    const ol = try kt.renderFormat(arena, "{{ x | comment }}", parsed, &d, .oliver);
+    try testing.expectEqualStrings("<!--note-->", ol);
+    const md = try kt.renderFormat(arena, "{{ x | comment }}", parsed, &d, .markdown);
+    try testing.expectEqualStrings("%%note%%", md);
+}
+
 test "corpus: oliver format renders without drift where the output has no extension filters" {
     // The oliver format only differs from markdown on `comment`'s
     // HTML passthrough; the corpus must render identically under it.

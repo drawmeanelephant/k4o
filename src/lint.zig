@@ -516,7 +516,7 @@ fn walkFilter(
                     .column = pos.column,
                     .detail = try std.fmt.allocPrint(alloc, "filter '{s}' is not supported by k4o", .{call.name}),
                     .construct = "filter",
-                    .why = "this filter needs a host environment (DOM APIs or a vault resolver) that an embeddable engine does not have — it will fail at render time",
+                    .why = "this filter needs DOM APIs that an embeddable engine does not have — it will fail at render time",
                     .example = "{{ text | strip_md }}",
                 });
             }

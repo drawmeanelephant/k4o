@@ -7,13 +7,14 @@ filters upstream segregates into `knap/html`.
 
 ## Decisions (issue #60, resolved)
 
-- **`embed`: excluded.** No vault resolver exists at this layer; renders as
-  literal text downstream anyway. Documented alongside the DOM pair.
+- **`embed`: implemented.** Initially ruled out for lack of a vault
+  resolver; probing showed it needs none — strings emit `![[x]]` /
+  `![[x|alias]]` and Oliver ≥1.3 gives the bytes a typed node downstream.
 - **`textile`/`gfm`: cut.** v0.1.0 was tagged on main as the final subset
   release before removal. `--format markdown` becomes the default and only
   faithful mode; `--format oliver` adds an HTML passthrough for `comment`.
 - **`replace`: bounded regex engine.** Built in-repo as a separable Zig
-  module (`src/zre.zig`) designed to be lifted into its own package later;
+  module (`src/re.zig`) designed to be lifted into its own package later;
   step-capped so hostile patterns degrade to a diagnostic, not a hang.
 - **`batch`: included.** CSV / JSON array / folder inputs, `--filename`,
   `--dry-run`, `--overwrite`.
@@ -84,7 +85,7 @@ Legend:
 | Dates | `date` `date_modify` `duration` | risk — format-token mini-language + strict input parsing + interval math |
 | Collections | `compact` `first` `join` `last` `length` `merge` `nth` `object` `parse_json` `reverse` `slice` `sort` `split` `sum` `unique` `where` | All need typed values; `nth` patterns + `sort` by property are medium each |
 | Collections (hard) | `map` `template` | `map:x => ({name: x.name})` arrow-expression mini-language; `template:"${prop}"` interpolation mini-language — **large** |
-| Replace | `replace` | risk — accepts real regexes `/[aeiou]/g`; **Zig stdlib has no regex**. Decided: bounded engine in `src/zre.zig` (separable, step-capped) |
+| Replace | `replace` | risk — accepts real regexes `/[aeiou]/g`; **Zig stdlib has no regex**. Decided: bounded engine in `src/re.zig` (separable, step-capped) |
 
 ## 4. HTML cleanup filters
 
@@ -133,7 +134,7 @@ Legend:
   segregates them. Permanent, documented exclusion. (Every other filter
   in the registry — including `embed` — is implemented.)
 - **risk** `replace` regex — no stdlib regex; bounded engine (decided:
-  build `src/zre.zig` as a separable step-capped module).
+  build `src/re.zig` as a separable step-capped module).
 - **risk** Unicode casing + UTF-16-unit counting — JS semantics vs Zig bytes;
   oracle diffs possible at edges.
 - **risk** JS number printing — exponent thresholds, shortest round-trip;
@@ -142,8 +143,8 @@ Legend:
 - **risk** Whitespace fidelity — nested standalone-tag stripping must match
   oracle bytes; currently in the exclusion list.
 
-**Scorecard:** 78 CLI filters → 2 blocked (DOM pair), 1 semantically
-impossible (`embed` — excluded), 74 implementable + regex engine. Weight concentrates in: typed-value
+**Scorecard:** 78 CLI filters → 2 blocked (DOM pair), 76 implementable +
+regex engine. Weight concentrates in: typed-value
 engine rework, regex, date mini-language, arrow expressions, HTML tokenizer,
 JS float print.
 

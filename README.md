@@ -73,13 +73,15 @@ zig-out/bin/k4o --version
   differential suite asserts that on every corpus case and fixture. That
   includes knap's own idioms — pipe tables, `==highlight==`, `$math$` —
   not a curated CommonMark subset.
-- `oliver` emits identical bytes everywhere except the three constructs
-  CommonMark cannot carry: `highlight` becomes `<mark>`, `math` and
-  `math_block` become `<span class="math">`, and `comment` becomes
-  `<!-- -->`. Everything else stays Markdown, so the
-  output assumes the matching Oliver `ParseOptions` for what it produces:
-  `callouts`, `wikilinks`, `footnotes`, `strikethrough`, `task_lists`,
-  `frontmatter`.
+- `oliver` emits identical bytes everywhere except `comment`, which
+  becomes `<!-- -->` — Oliver ≥1.3 parses `==x==`, `$…$`/`$$…$$`,
+  `![[x]]` and callout folds natively, but a `%%` block only opens at
+  line start, so the passthrough survives mid-line values. The output
+  assumes the matching Oliver `ParseOptions` for what it produces:
+  `callouts`, `wikilinks`, `embeds`, `footnotes`, `strikethrough`,
+  `task_lists`, `highlights`, `math`, `frontmatter` (the `--obsidian`
+  preset covers all but `frontmatter`), plus `raw_html=allowed` for the
+  comment passthrough.
 - The legacy Textile/GFM subset surface was removed for the fidelity work;
   release **v0.1.0** preserves it.
 
@@ -511,7 +513,8 @@ and every `fixtures/`/`examples/` template:
 - `k4o lint` agrees: clean corpus lints clean, broken corpus reports, and
   data-dependent failures stay invisible to a static lint by design.
 
-CI builds Oliver at `2a0a1e90d2e259e4189940d16b3907e8a82196b1`.
+CI builds Oliver at `967bfdf428ff58b9b6e292d2f0d05184e929fb92` (v1.3.0 —
+needs ≥1.3 for the `highlights`/`math`/`comments`/`embeds` parse flags).
 
 ## Clean-room record
 

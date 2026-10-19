@@ -70,7 +70,7 @@ jobs:
       - name: Build pinned Oliver
         run: |
           git clone --filter=blob:none https://github.com/drawmeanelephant/oliver.git "$RUNNER_TEMP/oliver"
-          git -C "$RUNNER_TEMP/oliver" checkout --detach 2a0a1e90d2e259e4189940d16b3907e8a82196b1
+          git -C "$RUNNER_TEMP/oliver" checkout --detach 967bfdf428ff58b9b6e292d2f0d05184e929fb92
           (cd "$RUNNER_TEMP/oliver" && zig build -Doptimize=ReleaseSafe --prefix "$RUNNER_TEMP/oliver-install")
 
       - name: Compare bytes and parse CommonMark
