@@ -467,9 +467,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 23 passed, 0 failed |
-| `passthrough` | 0 passed, 23 failed |
-| `noeval` | 0 passed, 23 failed |
+| `normal` | 24 passed, 0 failed |
+| `passthrough` | 0 passed, 24 failed |
+| `noeval` | 0 passed, 24 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification

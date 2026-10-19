@@ -345,7 +345,7 @@ test "corpus: oliver format keeps only the comment passthrough" {
     try testing.expectEqualStrings("%%note%%", md);
 }
 
-test "corpus: oliver format renders without drift where the output has no extension filters" {
+test "corpus: oliver format renders without drift outside the comment filter" {
     // The oliver format only differs from markdown on `comment`'s
     // HTML passthrough; the corpus must render identically under it.
     var failures: usize = 0;
