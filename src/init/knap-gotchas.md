@@ -1,4 +1,4 @@
-<!-- k4o init knap-gotchas v5 -->
+<!-- k4o init knap-gotchas v6 -->
 # knap gotchas
 
 The sharp edges, in order of how often they bite. Everything here is
@@ -155,9 +155,9 @@ fails, naming the offending name). Duplicate output names always fail;
 
 ## Blocked filters error at render
 
-`embed`, `html_to_json` and `remove_html` are registered but need a host
-(DOM APIs, a vault resolver) an embeddable engine does not have — they
-fail the render with a diagnostic, and `k4o lint` flags them ahead of
+`html_to_json` and `remove_html` are registered but need DOM APIs an
+embeddable engine does not have — they fail the render with a
+diagnostic, and `k4o lint` flags them ahead of
 time. `validate` cannot catch them (it only parses).
 
 ## Comments end at the first `#}`

@@ -1,4 +1,4 @@
-<!-- k4o init knap-templates v4 -->
+<!-- k4o init knap-templates v5 -->
 # knap starter templates
 
 Copy one, replace the data keys, verify with `k4o lint`, render with
@@ -144,9 +144,10 @@ refused.
 ```
 
 These emit Obsidian conventions (`> [!tip]`, `[[Page|Alias]]`, `[^1]:`,
-`==text==`, `$…$`, `%%…%%`) that plain Markdown leaves as text; with
-`--format oliver` the last three become `<mark>`, `<span class="math">`
-and `<!-- -->`.
+`==text==`, `$…$`, `%%…%%`) that plain Markdown leaves as text; Oliver
+≥1.3 parses all of them under `--obsidian`, so `--format oliver` emits
+the same bytes — except `comment`, which stays `<!-- -->` because a `%%`
+block only opens at line start.
 
 ## Front matter from data
 

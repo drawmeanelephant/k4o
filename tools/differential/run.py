@@ -2,10 +2,11 @@
 """Black-box differential and CommonMark structure checks (no knap source).
 
 k4o emits markdown by default — identical bytes to knap 0.6.0 — and an
-`oliver` format that swaps a handful of extension constructs for HTML
-passthrough. Every fixture is byte-compared against both the oracle and
-the committed .markdown snapshot; error fixtures pin k4o's diagnostics
-with empty stdout."""
+`oliver` format that swaps `comment`'s `%%…%%` for an HTML comment (a
+`%%` block only opens at line start in Oliver ≥1.3, so the passthrough
+is the safe emit at any column). Every fixture is byte-compared against
+both the oracle and the committed .markdown snapshot; error fixtures pin
+k4o's diagnostics with empty stdout."""
 
 import argparse
 from html.parser import HTMLParser
@@ -127,6 +128,10 @@ OLIVER_FLAGS = {
     "filter-wikilink": ["--wikilinks"],
     "filter-footnote": ["--footnotes"],
     "filter-list-task": ["--task-lists"],
+    "filter-highlight": ["--highlights"],
+    "filter-math": ["--math"],
+    "filter-comment": ["--comments"],
+    "filter-embed": ["--embeds"],
 }
 
 
@@ -148,10 +153,6 @@ def expected_tag(name):
         return "input"
     if stem.startswith("filter-list-") or stem.startswith("render-nonarray-list"):
         return "ul"
-    if stem.startswith("filter-callout-fold"):
-        # Oliver 1.1 doesn't parse the `[!type]-`/`+` fold marker —
-        # the output is a plain blockquote, still valid CommonMark.
-        return "blockquote"
     if stem.startswith("filter-callout"):
         return "callout"
     if stem.startswith("filter-strike"):
@@ -169,20 +170,16 @@ def expected_tag(name):
         # Bare `[^n]:` definitions render nothing in Oliver without a
         # matching `[^n]` reference — valid CommonMark, empty output.
         return None
-    if stem.startswith("filter-highlight"):
-        # `==x==` is knap-only; Oliver parses it as literal paragraph
-        # text — `--format oliver` emits `<mark>` instead.
-        return "p"
+    if stem.startswith("filter-math_block") or stem.startswith("filter-math-multiline"):
+        return "math-display"
     if stem.startswith("filter-math"):
-        return "p"
-    if stem.startswith("filter-comment"):
-        return "p"
-    if stem.startswith("filter-comment"):
-        return "p"
-    if stem.startswith("filter-math"):
-        return "p"
+        return "math-inline"
     if stem.startswith("filter-highlight"):
         return "mark"
+    if stem.startswith("filter-comment"):
+        return "comment-gone"
+    if stem.startswith("filter-embed"):
+        return "embed"
     return {
         "filter-bold-basic": "strong",
         "filter-italic-basic": "em",
@@ -223,6 +220,16 @@ def check_commonmark(name, markdown, oliver, required=None, raw_html="rejected")
     tags.feed(html)
     if required == "callout":
         assert "callout" in html, f"{name}: expected callout markup in {html!r}"
+    elif required == "embed":
+        assert "data-embed-target" in html, f"{name}: expected embed markup in {html!r}"
+    elif required in ("math-inline", "math-display"):
+        cls = "math inline" if required == "math-inline" else "math display"
+        assert f'class="{cls}"' in html, f"{name}: expected class=\"{cls}\" in {html!r}"
+    elif required == "comment-gone":
+        # `--comments` removes `%%…%%` at parse — the fixtures are all
+        # comment, so nothing may survive. An accepted-but-inert flag
+        # would leave the `%%` bytes visible.
+        assert not html.strip(), f"{name}: comment bytes survived: {html!r}"
     elif required == "footnote-ref":
         assert "footnote" in html, f"{name}: expected footnote markup in {html!r}"
     elif required:
@@ -275,6 +282,18 @@ def run(k4o, knap, oliver):
             expected_markdown = path.with_suffix(".markdown").read_bytes()
             compare(name, path.read_bytes(), data, "ok", expected_markdown, k4o, knap, directory)
             check_commonmark(name, expected_markdown, oliver)
+            # The one remaining format divergence: `comment`'s `<!-- -->`
+            # passthrough — prove Oliver still accepts that output.
+            if name.startswith("fixtures/filter-comment"):
+                data_arg = ["--data", str(data_path)] if data_path.exists() else []
+                ours = invoke([k4o, "render", str(path), *data_arg, "--format", "oliver"])
+                check_result(ours, f"k4o {name} --format oliver", "ok")
+                parsed = invoke([oliver, "render", "--from", "markdown", "--raw-html", "allowed"], input=ours.stdout)
+                assert parsed.returncode == 0 and not parsed.stderr, (
+                    f"{name}: Oliver rejected oliver-format output: {parsed.returncode}: {parsed.stderr!r}"
+                )
+                assert b"<!--" in parsed.stdout, f"{name}: comment passthrough lost: {parsed.stdout!r}"
+                checks += 1
             checks += 1
         # Error fixtures: k4o exits 1 with empty stdout and the pinned
         # diagnostic; the oracle's verdict is informational — when it also

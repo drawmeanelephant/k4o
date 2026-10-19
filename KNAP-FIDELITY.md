@@ -7,13 +7,14 @@ filters upstream segregates into `knap/html`.
 
 ## Decisions (issue #60, resolved)
 
-- **`embed`: excluded.** No vault resolver exists at this layer; renders as
-  literal text downstream anyway. Documented alongside the DOM pair.
+- **`embed`: implemented.** Initially ruled out for lack of a vault
+  resolver; probing showed it needs none — strings emit `![[x]]` /
+  `![[x|alias]]` and Oliver ≥1.3 gives the bytes a typed node downstream.
 - **`textile`/`gfm`: cut.** v0.1.0 was tagged on main as the final subset
   release before removal. `--format markdown` becomes the default and only
-  faithful mode; `--format oliver` adds HTML passthrough.
+  faithful mode; `--format oliver` adds an HTML passthrough for `comment`.
 - **`replace`: bounded regex engine.** Built in-repo as a separable Zig
-  module (`src/zre.zig`) designed to be lifted into its own package later;
+  module (`src/re.zig`) designed to be lifted into its own package later;
   step-capped so hostile patterns degrade to a diagnostic, not a hang.
 - **`batch`: included.** CSV / JSON array / folder inputs, `--filename`,
   `--dry-run`, `--overwrite`.
@@ -69,11 +70,11 @@ Legend:
 | `strike` | `~~x~~` | ext — Oliver strikethrough opt-in | Small |
 | `table` | pipe table; headers from object keys or `:(h1,h2)`; `| - |` delims | ext — GFM tables built into Oliver | Medium — header derivation + shapes |
 | `table_pretty` | padded pipe table | ext — GFM tables | Medium |
-| `highlight` | `==x==`; color `==🔵x==` | html⇄ → `<mark>` in oliver mode | Small |
-| `math` / `math_block` | `$x$` / `$$…$$` | html⇄ → `<span class=math>` in oliver mode | Small-medium |
-| `comment` | `%%x%%` | html⇄ → `<!--x-->` in oliver mode | Small |
+| `highlight` | `==x==`; color `==🔵x==` | ext — Oliver `highlights` opt-in (≥1.3) | Small |
+| `math` / `math_block` | `$x$` / `$$…$$` | ext — Oliver `math` opt-in (≥1.3) | Small-medium |
+| `comment` | `%%x%%` | html⇄ → `<!--x-->` in oliver mode — a `%%` block only opens at line start in Oliver, so the passthrough is the safe emit at any column | Small |
 | `yaml` / `yaml_property` | YAML block/flow; `name: value` | data — front-matter payload; Oliver frontmatter opt-in consumes at index 0 | Medium-large — bounded YAML writer |
-| `embed` | `![[target]]` / `![[t|alias]]` | blocked — no vault resolver; bytes are dead text downstream | **Excluded** (decision: non-implementable) |
+| `embed` | `![[target]]` / `![[t|alias]]` | ext — Oliver `embeds` opt-in (≥1.3) | Implemented — needs no resolver (supersedes the earlier "can't") |
 
 ## 3. Data filters (markup-free — all implementable)
 
@@ -84,7 +85,7 @@ Legend:
 | Dates | `date` `date_modify` `duration` | risk — format-token mini-language + strict input parsing + interval math |
 | Collections | `compact` `first` `join` `last` `length` `merge` `nth` `object` `parse_json` `reverse` `slice` `sort` `split` `sum` `unique` `where` | All need typed values; `nth` patterns + `sort` by property are medium each |
 | Collections (hard) | `map` `template` | `map:x => ({name: x.name})` arrow-expression mini-language; `template:"${prop}"` interpolation mini-language — **large** |
-| Replace | `replace` | risk — accepts real regexes `/[aeiou]/g`; **Zig stdlib has no regex**. Decided: bounded engine in `src/zre.zig` (separable, step-capped) |
+| Replace | `replace` | risk — accepts real regexes `/[aeiou]/g`; **Zig stdlib has no regex**. Decided: bounded engine in `src/re.zig` (separable, step-capped) |
 
 ## 4. HTML cleanup filters
 
@@ -110,11 +111,15 @@ Legend:
 - `--format markdown` becomes the **default and faithful** mode — bytes match
   the oracle on the implemented surface. Textile default flips: breaking
   change, lands alongside the site fixes anyway.
-- `--format oliver` (new): markdown mode + HTML substitution for the three
-  non-consumables (`highlight` → `<mark>`, `math` → `<span class=math>`,
-  `comment` → `<!-- -->`) and documents which Oliver ParseOptions the output
-  assumes (`callouts`, `wikilinks`, `footnotes`, `strikethrough`,
-  `task_lists`, `frontmatter`).
+- `--format oliver` (new): markdown mode + HTML substitution for `comment`
+  (`<!-- -->`). Oliver ≥1.3 parses `==…==`, `$…$`/`$$…$$`, `![[…]]` and
+  callout fold markers natively, so the rest emits faithful knap bytes in
+  both formats; `comment` keeps the passthrough because a `%%` block only
+  opens at line start — mid-line it would leak the marker and hide what
+  follows. The output assumes Oliver ParseOptions `callouts`, `wikilinks`,
+  `embeds`, `footnotes`, `strikethrough`, `task_lists`, `highlights`,
+  `math`, `frontmatter` (or `--obsidian` plus `frontmatter`), and
+  `raw_html=allowed` for the comment passthrough.
 - `textile` / `gfm`: **cut** (decided). v0.1.0 tagged as the final release
   containing them; Oliver's opt-ins cover the original need. dogbed must
   move to markdown/oliver output.
@@ -128,10 +133,8 @@ Legend:
 - **blocked** `html_to_json`, `remove_html` — need DOM globals; upstream
   segregates them. Permanent, documented exclusion. (Every other filter
   in the registry — including `embed` — is implemented.)
-- **blocked** `embed` — excluded (decided): no resolver exists at this
-  layer; bytes emittable, semantics not.
 - **risk** `replace` regex — no stdlib regex; bounded engine (decided:
-  build `src/zre.zig` as a separable step-capped module).
+  build `src/re.zig` as a separable step-capped module).
 - **risk** Unicode casing + UTF-16-unit counting — JS semantics vs Zig bytes;
   oracle diffs possible at edges.
 - **risk** JS number printing — exponent thresholds, shortest round-trip;
@@ -140,8 +143,8 @@ Legend:
 - **risk** Whitespace fidelity — nested standalone-tag stripping must match
   oracle bytes; currently in the exclusion list.
 
-**Scorecard:** 78 CLI filters → 2 blocked (DOM pair), 1 semantically
-impossible (`embed` — excluded), 74 implementable + regex engine. Weight concentrates in: typed-value
+**Scorecard:** 78 CLI filters → 2 blocked (DOM pair), 76 implementable +
+regex engine. Weight concentrates in: typed-value
 engine rework, regex, date mini-language, arrow expressions, HTML tokenizer,
 JS float print.
 
