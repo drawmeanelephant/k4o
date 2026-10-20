@@ -184,3 +184,32 @@ These were pinned by oracle probes during implementation:
   `batch` (CSV/JSON-array/folder + `--filename`/`--overwrite`/`--dry-run`),
   `help syntax|filters|tags|filter|tag` — implemented in `src/batch.zig`,
   `src/help.zig`, `src/main.zig`; oracle docs embedded under `src/help/`.
+
+### Loop/tag whitespace model (issues #64, #65)
+
+Probing pinned the oracle's whitespace rules as line-side flags plus a
+runtime strip, not parse-time text surgery:
+
+- **Two independent sides.** A `{%` tag's line is *left-clean* when the
+  prefix before it is only whitespace/`{%`/`{#` content, and
+  *right-clean* when the line remainder is. Open/mid tags (`for`, `if`,
+  `set`, `elseif`, `else`) with a right-clean line eat the remainder —
+  spaces/tabs, `{# #}` comments, then one newline — stopping before a
+  `{%`/`{{` tag. `{% endfor %}` does no parse-time work at all.
+- **First-iteration strip.** A right-clean `{% for %}` arms a flag; the
+  first emitted `[ \t]*` run plus one `\r?\n` is stripped — once, on
+  iteration 0, across however many puts the body takes. A chunk that
+  starts with real content discharges the flag (this was #64).
+- **Per-iteration newline discharge.** Each iteration that emits any
+  non-whitespace loses one trailing `\n`; an iteration that emits only
+  whitespace emits nothing at all (dynamic `{{ nl }}` output chomps the
+  same — it is runtime, not source-level). Empty iterations still
+  discharge a pending separator `\n`, so `a`, empty, `c` renders `a\nc`
+  and trailing empty iterations drop the separator entirely (#65).
+- **Loop-end trim.** After the loop, `[ \t\r]` is trimmed back to the
+  loop's own start — a `\r` before `{% endfor %}` goes with the run.
+- **Silent `{%` constructs.** An `{% if %}`/`{% for %}`/`{% set %}` that
+  emitted nothing eats the next same-line whitespace run (`[ \t]*` plus
+  one newline) — *unless the construct's own tags already consumed
+  whitespace* (`x{% if t %}   {% endif %}   Z` keeps `x   Z` because the
+  `   ` was eaten at parse; `x{% if f %}B{% endif %}   Z` gives `xZ`).

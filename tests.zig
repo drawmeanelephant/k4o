@@ -178,6 +178,8 @@ const cases = [_]Case{
     .{ .name = "loop-nested", .template = @embedFile("fixtures/loop-nested.knap"), .data = @embedFile("fixtures/loop-nested.json"), .expected = @embedFile("fixtures/loop-nested.markdown") },
     .{ .name = "loop-values", .template = @embedFile("fixtures/loop-values.knap"), .data = @embedFile("fixtures/loop-values.json"), .expected = @embedFile("fixtures/loop-values.markdown") },
     .{ .name = "loop-var-named-loop", .template = @embedFile("fixtures/loop-var-named-loop.knap"), .data = @embedFile("fixtures/loop-var-named-loop.json"), .expected = @embedFile("fixtures/loop-var-named-loop.markdown") },
+    .{ .name = "loop-ws-first-iter", .template = @embedFile("fixtures/loop-ws-first-iter.knap"), .data = @embedFile("fixtures/loop-ws-first-iter.json"), .expected = @embedFile("fixtures/loop-ws-first-iter.markdown") },
+    .{ .name = "loop-ws-inline-endfor", .template = @embedFile("fixtures/loop-ws-inline-endfor.knap"), .data = @embedFile("fixtures/loop-ws-inline-endfor.json"), .expected = @embedFile("fixtures/loop-ws-inline-endfor.markdown") },
     .{ .name = "render-arg-resolves-to-object", .template = @embedFile("fixtures/render-arg-resolves-to-object.knap"), .data = @embedFile("fixtures/render-arg-resolves-to-object.json"), .expected = @embedFile("fixtures/render-arg-resolves-to-object.markdown") },
     .{ .name = "render-bad-args-link-missing", .template = @embedFile("fixtures/render-bad-args-link-missing.knap"), .data = "{}", .expected = @embedFile("fixtures/render-bad-args-link-missing.markdown") },
     .{ .name = "render-deep-list", .template = @embedFile("fixtures/render-deep-list.knap"), .data = @embedFile("fixtures/render-deep-list.json"), .expected = @embedFile("fixtures/render-deep-list.markdown") },
