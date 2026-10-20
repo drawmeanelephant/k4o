@@ -101,7 +101,7 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "empty-logic-tag",
             .construct = "logic tag `{% ... %}`",
-            .why = "a logic tag needs a keyword — if, elseif, else, endif, for, endfor or set — followed by its expression",
+            .why = "a logic tag needs a keyword — if, elseif, else, endif, for, endfor, set or raw — followed by its expression",
             .example = "{% if draft %}Draft{% endif %}",
         };
     } else if (startsWith(detail, "nesting too deep")) {
@@ -154,6 +154,22 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
             .construct = "`{% if %}` chain",
             .why = "an if chain has at most one else branch",
             .example = "{% if a %}…{% else %}…{% endif %}",
+        };
+    } else if (eql(detail, "unexpected text in '{% raw %}'") or
+        eql(detail, "unexpected text in '{% endraw %}'"))
+    {
+        teaching = .{
+            .rule = "raw-tag-trailing-text",
+            .construct = "`{% raw %}` tag",
+            .why = "raw and endraw stand alone — the bytes between them render literally, so the tags themselves take no expression",
+            .example = "{% raw %}{{ literal }}{% endraw %}",
+        };
+    } else if (eql(detail, "unclosed raw block (missing '{% endraw %}')")) {
+        teaching = .{
+            .rule = "unclosed-raw",
+            .construct = "`{% raw %}` block",
+            .why = "every {% raw %} needs a matching {% endraw %} — the first endraw tag closes the block, so leaving it out swallows the rest of the template",
+            .example = "{% raw %}{% if x %}{% endraw %}",
         };
     } else if (startsWith(detail, "unexpected text in '{% ")) {
         teaching = .{
@@ -378,7 +394,7 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "unknown-logic-tag",
             .construct = "logic tag `{% ... %}`",
-            .why = "the logic tags are if, elseif, else, endif, for, endfor and set; anything else is unknown",
+            .why = "the logic tags are if, elseif, else, endif, for, endfor, set and raw; anything else is unknown",
             .example = "{% if draft %}Draft{% endif %}",
         };
     }

@@ -1,4 +1,4 @@
-<!-- k4o init knap-gotchas v6 -->
+<!-- k4o init knap-gotchas v7 -->
 # knap gotchas
 
 The sharp edges, in order of how often they bite. Everything here is
@@ -167,3 +167,24 @@ and an unclosed `{#` is a syntax error. A comment removes only its own
 bytes: `{# gone #}` alone on a line leaves the indentation and the
 newline behind — a blank line. Put comments inline, or share the line
 with a `{% %}` tag to keep output clean.
+
+## Literal `{{`/`{%`/`{#` — `{% raw %}`
+
+Tags are live everywhere — code spans and fenced blocks included — so a
+template cannot print knap syntax unaided. `{% raw %}…{% endraw %}`
+emits the bytes between the tags verbatim:
+
+```text
+{% raw %}Use {{ title }} inside {% if x %}…{% endif %}{% endraw %}
+```
+
+renders exactly that text. The tags follow the usual whitespace rules —
+a standalone `{% raw %}` eats its line end like `{% if %}`, and a
+column-0 `{% endraw %}` on a clean line swallows the body's trailing
+whitespace like `{% endif %}`. The first `{% endraw %}` wins — blocks
+do not nest — so a literal `{% endraw %}` must come from a quoted
+literal: `{{ "{% endraw %}" }}`. The same trick covers one-off escapes
+anywhere: `{{ "{% if x %}" }}` renders `{% if x %}`.
+
+`{% raw %}` is a k4o extension — knap 0.6.0 rejects it as an unknown
+tag — so it is for k4o-only templates, not shared ones.
