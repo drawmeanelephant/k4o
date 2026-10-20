@@ -1,4 +1,4 @@
-<!-- k4o init knap-tour v5 -->
+<!-- k4o init knap-tour v6 -->
 # knap in one page
 
 Knap is a template language: template + JSON data in, Markdown-family text
@@ -198,8 +198,9 @@ k4o render t.knap --data d.json --format oliver
 `markdown` is the knap-faithful byte surface. `oliver` is the same bytes
 except `comment`, which stays `<!-- -->` — Oliver ≥1.3 parses `==x==`,
 `$…$`/`$$…$$` and `%%…%%` natively, but a `%%` block only opens at line
-start, so the HTML form survives mid-line values. There is no `textile`
-or `gfm` format.
+start, so the HTML form survives mid-line values — and `table`, whose
+`| - |` delimiters widen to `| --- |` for Oliver's `:?-+:?` grammar.
+There is no `textile` or `gfm` format.
 
 Rendering buffers completely: on any error stdout stays empty, the
 diagnostic (kind, line, column, detail) goes to stderr, exit is 1.

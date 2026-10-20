@@ -1,9 +1,10 @@
-<!-- k4o init knap-examples v5 -->
+<!-- k4o init knap-examples v6 -->
 # knap worked examples
 
 The three examples shipped with k4o, end to end: template, data, and the
 exact bytes out. `--format markdown` is the default and knap-faithful;
-`--format oliver` differs only for `comment` (`<!-- -->`); Oliver ≥1.3
+`--format oliver` differs only for `comment` (`<!-- -->`) and `table`
+(`| --- |` delimiters for knap's `| - |`); Oliver ≥1.3
 parses `highlight`'s `==x==` and `math`'s `$…$`/`$$…$$` natively.
 
 ## Heading — `{{ value | filter }}` and chains
@@ -73,7 +74,9 @@ Data (`table.json`):
 ```
 
 Output — a compact pipe table; an array of arrays gets an empty header
-row unless you pass `table:("Name", "Age")`:
+row unless you pass `table:("Name", "Age")`. Under `--format oliver` the
+delimiter row widens to `| --- | --- |` — Oliver's `:?-+:?` grammar
+needs three hyphens or a colon, so `| - |` would parse as a paragraph:
 
 ```text
 |  |  |

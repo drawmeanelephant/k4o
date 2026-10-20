@@ -4,9 +4,11 @@
 k4o emits markdown by default — identical bytes to knap 0.6.0 — and an
 `oliver` format that swaps `comment`'s `%%…%%` for an HTML comment (a
 `%%` block only opens at line start in Oliver ≥1.3, so the passthrough
-is the safe emit at any column). Every fixture is byte-compared against
-both the oracle and the committed .markdown snapshot; error fixtures pin
-k4o's diagnostics with empty stdout."""
+is the safe emit at any column) and widens `table`'s `| - |` delimiters
+to `| --- |` (Oliver's `:?-+:?` grammar needs three hyphens or a colon).
+Every fixture is byte-compared against both the oracle and the committed
+.markdown snapshot; error fixtures pin k4o's diagnostics with empty
+stdout."""
 
 import argparse
 from html.parser import HTMLParser
@@ -160,9 +162,11 @@ def expected_tag(name):
     if stem.startswith("filter-table_pretty"):
         return "table"
     if stem.startswith("filter-table") or stem.startswith("render-ragged-table") or name == "examples/table":
-        # Compact `| - |` delimiters don't parse as a table in this Oliver
-        # build (the pretty `| --- |` form does) — still valid CommonMark,
-        # so the check is only that it parses.
+        # Markdown format keeps knap's compact `| - |` delimiters, which
+        # Oliver's `:?-+:?` grammar reads as a paragraph — still valid
+        # CommonMark, so the markdown leg only checks that it parses. The
+        # oliver-format leg below asserts `--format oliver` emits `---`
+        # delimiters that DO produce a <table>.
         return "p"
     if stem.startswith("filter-wikilink"):
         return "a"
@@ -282,8 +286,10 @@ def run(k4o, knap, oliver):
             expected_markdown = path.with_suffix(".markdown").read_bytes()
             compare(name, path.read_bytes(), data, "ok", expected_markdown, k4o, knap, directory)
             check_commonmark(name, expected_markdown, oliver)
-            # The one remaining format divergence: `comment`'s `<!-- -->`
-            # passthrough — prove Oliver still accepts that output.
+            # The two format divergences, proved against a real Oliver:
+            # `comment`'s `<!-- -->` passthrough still parses, and
+            # `table`'s widened `| --- |` delimiters produce a <table>.
+            stem = name.split("/")[-1]
             if name.startswith("fixtures/filter-comment"):
                 data_arg = ["--data", str(data_path)] if data_path.exists() else []
                 ours = invoke([k4o, "render", str(path), *data_arg, "--format", "oliver"])
@@ -293,6 +299,23 @@ def run(k4o, knap, oliver):
                     f"{name}: Oliver rejected oliver-format output: {parsed.returncode}: {parsed.stderr!r}"
                 )
                 assert b"<!--" in parsed.stdout, f"{name}: comment passthrough lost: {parsed.stdout!r}"
+                checks += 1
+            # Compact-table fixtures only: `filter-table-*` (not
+            # `filter-table_pretty`, which already emits `---`),
+            # `render-ragged-table`, `examples/table`.
+            if stem.startswith("filter-table-") or stem.startswith("render-ragged-table") or name == "examples/table":
+                data_arg = ["--data", str(data_path)] if data_path.exists() else []
+                ours = invoke([k4o, "render", str(path), *data_arg, "--format", "oliver"])
+                check_result(ours, f"k4o {name} --format oliver", "ok")
+                parsed = invoke([oliver, "render", "--from", "markdown", "--raw-html", "rejected"], input=ours.stdout)
+                assert parsed.returncode == 0 and not parsed.stderr, (
+                    f"{name}: Oliver rejected oliver-format output: {parsed.returncode}: {parsed.stderr!r}"
+                )
+                tags = Tags()
+                tags.feed(parsed.stdout.decode("utf-8"))
+                assert "table" in tags.names, (
+                    f"{name}: oliver-format table did not parse as a table: {parsed.stdout!r}"
+                )
                 checks += 1
             checks += 1
         # Error fixtures: k4o exits 1 with empty stdout and the pinned

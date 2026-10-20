@@ -659,7 +659,9 @@ fn unicodeLower(it: *Interp, s: []const u8) Error![]const u8 {
 
 /// `table`/`table_pretty`: pipes are compact (`| ` and ` |`), pretty
 /// pads every column to its widest cell (minimum 3) with a `---`
-/// separator row.
+/// separator row. Under `--format oliver` the compact separator widens
+/// to `---` as well — Oliver's `:?-+:?` delimiter grammar needs three
+/// hyphens or a colon, so knap's `| - |` degrades to a paragraph there.
 fn emitTable(
     it: *Interp,
     call: parse.FilterCall,
@@ -782,8 +784,12 @@ fn emitTable(
     var out = std.ArrayList(u8).empty;
     if (!pretty) {
         try writeRow(&out, it, headers.items, false, null);
+        // Oliver's `:?-+:?` delimiter grammar rejects single hyphens —
+        // `| - |` parses as a paragraph, so oliver mode emits `---`
+        // (valid GFM for every consumer). Markdown keeps knap's bytes.
+        const delim: []const u8 = if (it.format == .oliver) "---" else "-";
         const sep = try it.alloc.alloc([]const u8, width);
-        for (0..width) |i| sep[i] = "-";
+        for (0..width) |i| sep[i] = delim;
         try writeRow(&out, it, sep, false, null);
         for (rows.items) |row| try writeRow(&out, it, row, false, null);
     } else {
