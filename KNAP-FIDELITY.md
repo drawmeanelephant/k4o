@@ -12,7 +12,8 @@ filters upstream segregates into `knap/html`.
   `![[x|alias]]` and Oliver ≥1.3 gives the bytes a typed node downstream.
 - **`textile`/`gfm`: cut.** v0.1.0 was tagged on main as the final subset
   release before removal. `--format markdown` becomes the default and only
-  faithful mode; `--format oliver` adds an HTML passthrough for `comment`.
+  faithful mode; `--format oliver` adds an HTML passthrough for `comment`
+  and widens `table`'s `| - |` delimiters to `| --- |`.
 - **`replace`: bounded regex engine.** Built in-repo as a separable Zig
   module (`src/re.zig`) designed to be lifted into its own package later;
   step-capped so hostile patterns degrade to a diagnostic, not a hang.
@@ -68,7 +69,7 @@ Legend:
 | `wikilink` | `[[target]]` / `[[t|alias]]` | ext — Oliver wikilinks opt-in | Small |
 | `footnote` | `[^1]:` / `[^kebab-key]:` definitions | ext — Oliver footnotes opt-in | Medium |
 | `strike` | `~~x~~` | ext — Oliver strikethrough opt-in | Small |
-| `table` | pipe table; headers from object keys or `:(h1,h2)`; `| - |` delims | ext — GFM tables built into Oliver | Medium — header derivation + shapes |
+| `table` | pipe table; headers from object keys or `:(h1,h2)`; `| - |` delims | ext — GFM tables built into Oliver; oliver mode widens delims to `\| --- \|` (Oliver's `:?-+:?` needs 3+ hyphens or a colon) | Medium — header derivation + shapes |
 | `table_pretty` | padded pipe table | ext — GFM tables | Medium |
 | `highlight` | `==x==`; color `==🔵x==` | ext — Oliver `highlights` opt-in (≥1.3) | Small |
 | `math` / `math_block` | `$x$` / `$$…$$` | ext — Oliver `math` opt-in (≥1.3) | Small-medium |
@@ -112,11 +113,15 @@ Legend:
   the oracle on the implemented surface. Textile default flips: breaking
   change, lands alongside the site fixes anyway.
 - `--format oliver` (new): markdown mode + HTML substitution for `comment`
-  (`<!-- -->`). Oliver ≥1.3 parses `==…==`, `$…$`/`$$…$$`, `![[…]]` and
+  (`<!-- -->`) + widened `table` delimiters (`| --- |` for knap's
+  `| - |`). Oliver ≥1.3 parses `==…==`, `$…$`/`$$…$$`, `![[…]]` and
   callout fold markers natively, so the rest emits faithful knap bytes in
   both formats; `comment` keeps the passthrough because a `%%` block only
   opens at line start — mid-line it would leak the marker and hide what
-  follows. The output assumes Oliver ParseOptions `callouts`, `wikilinks`,
+  follows — and `table` widens its delimiters because Oliver's `:?-+:?`
+  delimiter grammar needs three hyphens or a colon, so the compact form
+  would parse as a paragraph, not a table (issue #63). The output assumes
+  Oliver ParseOptions `callouts`, `wikilinks`,
   `embeds`, `footnotes`, `strikethrough`, `task_lists`, `highlights`,
   `math`, `frontmatter` (or `--obsidian` plus `frontmatter`), and
   `raw_html=allowed` for the comment passthrough.

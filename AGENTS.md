@@ -24,12 +24,15 @@ in release v0.1.0.
 3. **Every byte is charged.** All output flows through `Interp.charge()`
    so `--max-output` bounds nested-loop amplification. No write path may
    skip it.
-4. **`oliver` diverges only on `comment`.** Oliver ≥1.3 parses `==…==`,
-   `$…$`/`$$…$$`, `%%…%%`, `![[…]]` and callout folds natively, so every
-   construct emits identical bytes in both formats — except `comment`,
-   which keeps `<!-- -->` under oliver because a `%%` block only opens at
-   line start (mid-line it would leak the marker and hide what follows);
-   tests assert this.
+4. **`oliver` diverges only on `comment` and `table`.** Oliver ≥1.3
+   parses `==…==`, `$…$`/`$$…$$`, `%%…%%`, `![[…]]` and callout folds
+   natively, so every construct emits identical bytes in both formats —
+   except `comment`, which keeps `<!-- -->` under oliver because a `%%`
+   block only opens at line start (mid-line it would leak the marker and
+   hide what follows), and `table`, whose `| - |` delimiter cells widen
+   to `| --- |` because Oliver's `:?-+:?` grammar needs three hyphens or
+   a colon and would otherwise read the table as a paragraph; tests
+   assert both.
 5. **Clean-room.** The subset derives from Knap's user-facing docs only.
    Real knap is a *black-box oracle* for differential testing — its
    internals are never consulted.

@@ -1,4 +1,4 @@
-<!-- k4o init knap-templates v5 -->
+<!-- k4o init knap-templates v6 -->
 # knap starter templates
 
 Copy one, replace the data keys, verify with `k4o lint`, render with
@@ -147,7 +147,9 @@ These emit Obsidian conventions (`> [!tip]`, `[[Page|Alias]]`, `[^1]:`,
 `==text==`, `$…$`, `%%…%%`) that plain Markdown leaves as text; Oliver
 ≥1.3 parses all of them under `--obsidian`, so `--format oliver` emits
 the same bytes — except `comment`, which stays `<!-- -->` because a `%%`
-block only opens at line start.
+block only opens at line start, and `table`, whose `| - |` delimiters
+widen to `| --- |` because Oliver's `:?-+:?` grammar needs three hyphens
+or a colon.
 
 ## Front matter from data
 

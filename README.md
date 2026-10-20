@@ -73,10 +73,13 @@ zig-out/bin/k4o --version
   differential suite asserts that on every corpus case and fixture. That
   includes knap's own idioms — pipe tables, `==highlight==`, `$math$` —
   not a curated CommonMark subset.
-- `oliver` emits identical bytes everywhere except `comment`, which
+- `oliver` emits identical bytes everywhere except two spots: `comment`
   becomes `<!-- -->` — Oliver ≥1.3 parses `==x==`, `$…$`/`$$…$$`,
   `![[x]]` and callout folds natively, but a `%%` block only opens at
-  line start, so the passthrough survives mid-line values. The output
+  line start, so the passthrough survives mid-line values — and `table`'s
+  `| - |` delimiter cells widen to `| --- |`, since Oliver's `:?-+:?`
+  delimiter grammar needs three hyphens or a colon and the compact form
+  would render as a paragraph. The output
   assumes the matching Oliver `ParseOptions` for what it produces:
   `callouts`, `wikilinks`, `embeds`, `footnotes`, `strikethrough`,
   `task_lists`, `highlights`, `math`, `frontmatter` (the `--obsidian`
@@ -280,7 +283,7 @@ text, offline.
 | Numbers | `calc`, `number_format`, `round` | `calc:"+10"`, `*2`, `**3` — `+ - * / ** ^`. |
 | Dates | `date`, `date_modify`, `duration` | Format tokens, interval math (`"+1d"`), ISO 8601 durations. |
 | Collections | `compact`, `first`, `join`, `last`, `length`, `merge`, `nth`, `object`, `parse_json`, `reverse`, `slice`, `sort`, `split`, `sum`, `unique`, `where` | Typed values end to end. `nth` takes pattern syntax (`nth:3`, `nth:2n`, `nth:n+3`); `sort:"prop"` sorts object arrays; `where:("status", "draft")` filters by property. |
-| Extensions | `callout`, `wikilink`, `footnote`, `strike`, `table`, `table_pretty`, `highlight`, `math`, `math_block`, `comment` | Obsidian-flavored constructs. `table`/`table_pretty` emit pipe tables — headers from object keys or `:(h1, h2)` parameters. `comment` is the one that switches to `<!-- -->` under `--format oliver` — Oliver ≥1.3 parses `==…==`, `$…$`/`$$…$$` natively, while a `%%` block only opens at line start so the passthrough survives mid-line values. |
+| Extensions | `callout`, `wikilink`, `footnote`, `strike`, `table`, `table_pretty`, `highlight`, `math`, `math_block`, `comment` | Obsidian-flavored constructs. `table`/`table_pretty` emit pipe tables — headers from object keys or `:(h1, h2)` parameters. Two filters diverge under `--format oliver`: `comment` switches to `<!-- -->` because a `%%` block only opens at line start (Oliver ≥1.3 parses `==…==`, `$…$`/`$$…$$` natively), and `table` widens its `| - |` delimiters to `| --- |` for Oliver's `:?-+:?` grammar. |
 | Advanced | `map`, `template`, `replace`, `yaml`, `yaml_property` | `map` takes a property name or an arrow (`x => ({name: x.name})`); `template` interpolates `${prop}`; `replace` takes `"old":"new"` pairs or regexes (`"/[aeiou]/g"`) via a bounded, step-capped engine; `yaml`/`yaml_property` write bounded YAML (block or `flow`). |
 | HTML | `remove_attr`, `strip_attr`, `remove_tags`, `replace_tags`, `strip_tags`, `strip_md`, `stripmd` | Clean HTML inside *data* with a tag/attribute tokenizer — no DOM. `stripmd` is the `strip_md` alias. |
 | Blocked | `remove_html`, `html_to_json` | Need a DOM that an embeddable engine does not have (upstream segregates the DOM pair itself). Both render and lint fail them with a diagnostic naming the filter. |
