@@ -23,6 +23,15 @@ filters upstream segregates into `knap/html`.
   `{%- -%}` (`PARSE_ERROR: Unexpected character '-'`) even though
   `knap help syntax` documents them. Fidelity = oracle, so k4o rejects
   dash markers too. Recorded here so nobody "fixes" it back.
+- **`{% raw %}…{% endraw %}`: added** (issue #67). knap 0.6.0 has no
+  literal-text escape — `{%`/`{{` are live inside code spans — so a
+  knap template cannot document knap syntax. The oracle rejects
+  `{% raw %}` as an unknown tag, so adding it changes nothing knap can
+  render: pure extension, like `--max-output`/`lint`/`init`. The body
+  is one text node; the two tags join the standalone-line whitespace
+  model (`{% raw %}` opens like `{% if %}`, `{% endraw %}` closes like
+  `{% endif %}`). No `raw`/`endraw` in the spaced-name keyword list —
+  `{{ my raw }}` must stay a variable in both engines.
 
 Legend:
 - **native** — emits strict CommonMark; Oliver parses as-is

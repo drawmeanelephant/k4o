@@ -105,6 +105,7 @@ the [clean-room record](#clean-room-record)):
 | Loops | `{% for item in items %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`, plus `{item}_index` — the 0-based counter named after the iterator (`item_index` here). Iterating `null` or a missing value emits nothing; anything else non-array is a render error. Inside a loop `loop` always means the loop object, so a variable bound as `{% for loop in array %}` is unreachable. **Nested loops multiply** — see [Output size](#output-size). |
 | Assignment | `{% set slug = title \| kebab %}` | Ordered assignment of a literal, expression or filtered value; produces no output. Assignments land in the innermost scope — inside a loop that is the current iteration's scope, so they die with the loop; `{% if %}` opens no scope. |
 | Comments | `{# … #}` | Single- or multi-line; removed from the output; never evaluated; ends at the first `#}`, does not nest; unclosed is a syntax error. |
+| Raw text | `{% raw %} … {% endraw %}` | **k4o extension** — knap 0.6.0 has no literal escape and rejects `{% raw %}`, so nothing it renders changes. Everything between the tags renders byte-for-byte: `{{`, `{%` and `{#` inside are output, not tags. The first `{% endraw %}` closes the block (raw blocks do not nest); a literal `{% endraw %}` needs the quoted-literal escape, `{{ "{% endraw %}" }}`, which also works alone for one-off literals. |
 | Missing values | — | Render as empty text; are false in conditions. |
 | Whitespace control | `{{- … -}}`, `{%- … -%}` | **Parse error.** `knap help syntax` documents dash markers, but the 0.6.0 CLI rejects them (`Unexpected character '-'`). Fidelity is to the oracle, so k4o rejects them too — a documented doc-vs-implementation divergence. |
 
@@ -136,6 +137,11 @@ The model matches the oracle byte-for-byte:
 - A column-0 `{% endfor %}` also eats the one newline that ends the line
   before it (`B1\n{% endfor %}` ends `B1`); an indented `{% endfor %}`
   leaves that whitespace inside the body instead.
+- `{% raw %}`/`{% endraw %}` follow the same rules: a standalone
+  `{% raw %}` eats its line end, an inline `{% raw %}` trims the body's
+  leading same-line spaces, and a column-0 clean-line `{% endraw %}`
+  swallows the body's trailing whitespace run while leaving the newline
+  after the tag in the output — the `{% endif %}` rule exactly.
 
 ### Structured values
 
@@ -420,12 +426,13 @@ on stderr.
 ## k4o help
 
 The offline language reference, embedded in the binary — the captured text
-of `knap help` at 0.6.0 (see `tools/differential/oracle-docs/`):
+of `knap help` at 0.6.0 (see `tools/differential/oracle-docs/`), plus a
+k4o-authored entry for the `{% raw %}` extension:
 
 ```sh
 k4o help syntax            # variables, filter chaining, logic, whitespace
 k4o help filters           # every filter, one line each
-k4o help tags              # if / elseif / else / endif / for / endfor / set
+k4o help tags              # if / elseif / else / endif / for / endfor / set / raw
 k4o help filter table      # full reference for one filter
 k4o help tag for           # syntax and examples for one tag
 ```
@@ -470,9 +477,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 24 passed, 0 failed |
-| `passthrough` | 0 passed, 24 failed |
-| `noeval` | 0 passed, 24 failed |
+| `normal` | 27 passed, 0 failed |
+| `passthrough` | 0 passed, 27 failed |
+| `noeval` | 0 passed, 27 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification

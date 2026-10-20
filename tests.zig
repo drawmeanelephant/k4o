@@ -229,6 +229,7 @@ const error_cases = [_]ErrorCase{
     .{ .name = "err-unclosed-for", .template = @embedFile("fixtures/errors/err-unclosed-for.knap"), .data = null, .message = @embedFile("fixtures/errors/err-unclosed-for.error") },
     .{ .name = "err-unclosed-if", .template = @embedFile("fixtures/errors/err-unclosed-if.knap"), .data = null, .message = @embedFile("fixtures/errors/err-unclosed-if.error") },
     .{ .name = "err-unclosed-output", .template = @embedFile("fixtures/errors/err-unclosed-output.knap"), .data = null, .message = @embedFile("fixtures/errors/err-unclosed-output.error") },
+    .{ .name = "err-unclosed-raw", .template = @embedFile("fixtures/errors/err-unclosed-raw.knap"), .data = null, .message = @embedFile("fixtures/errors/err-unclosed-raw.error") },
     .{ .name = "err-unknown-filter", .template = @embedFile("fixtures/errors/err-unknown-filter.knap"), .data = null, .message = @embedFile("fixtures/errors/err-unknown-filter.error") },
     .{ .name = "err-value-depth", .template = @embedFile("fixtures/errors/err-value-depth.knap"), .data = @embedFile("fixtures/errors/err-value-depth.json"), .message = @embedFile("fixtures/errors/err-value-depth.error") },
 };
@@ -543,6 +544,37 @@ test "unit: loop over non-array is a render error" {
 test "unit: missing and null loop collections are empty" {
     try renderOk("A{% for x in missing %}b{% endfor %}Z", "{}", "AZ");
     try renderOk("A{% for x in n %}b{% endfor %}Z", "{\"n\":null}", "AZ");
+}
+
+test "unit: {% raw %} emits literal tags (issue #67)" {
+    try renderOk("{% raw %}{% if x %}{{ y }}{# c #}{% endif %}{% endraw %}", "{}", "{% if x %}{{ y }}{# c #}{% endif %}");
+    try renderOk("{% raw %}{% endraw %}", "{}", "");
+    try renderOk("{% raw %}x{% endraw %}y", "{}", "xy");
+    // Blocks do not nest: the first {% endraw %} wins.
+    try renderOk("{% raw %}{% raw %}{% endraw %}", "{}", "{% raw %}");
+    // A raw block inside an if branch keeps the if open.
+    try renderOk("{% if t %}[{% raw %}{{x}}{% endraw %}]{% endif %}", "{\"t\":true}", "[{{x}}]");
+    // A quoted literal is the one-off escape hatch.
+    try renderOk("{{ \"{% if x %}\" }}", "{}", "{% if x %}");
+}
+
+test "unit: {% raw %} joins the whitespace model" {
+    // Standalone tags: the opener eats its line end; a column-0,
+    // clean-line endraw swallows the body's trailing whitespace run;
+    // the newline after endraw stays — exactly like if/endif.
+    try renderOk("A\n{% raw %}\n{% if x %}\n{% endraw %}\nC\n", "{}", "A\n{% if x %}\nC\n");
+    // Inline opener trims the body's leading same-line spaces; an
+    // inline endraw keeps the whitespace before it.
+    try renderOk("x {% raw %} A {% endraw %} y", "{}", "x A  y");
+    // An indented endraw keeps the body's trailing whitespace.
+    try renderOk("{% raw %}B\n  {% endraw %}\nC", "{}", "B\n  \nC");
+}
+
+test "unit: {% raw %} errors" {
+    try renderErr("{% raw %}abc", "{}", "unclosed raw block (missing '{% endraw %}')");
+    try renderErr("{% endraw %}", "{}", "unknown logic tag 'endraw'");
+    try renderErr("{% raw x %}a{% endraw %}", "{}", "unexpected text in '{% raw %}'");
+    try renderErr("{% raw %}a{% endraw x %}", "{}", "unexpected text in '{% endraw %}'");
 }
 
 test "unit: dash whitespace-control syntax is rejected" {

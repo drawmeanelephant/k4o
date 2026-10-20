@@ -27,6 +27,7 @@ pub fn print(out: *std.Io.Writer, args: []const []const u8) !bool {
     }
     if (std.mem.eql(u8, topic, "tags")) {
         try out.writeAll(tags_doc);
+        try out.writeAll(tags_addendum);
         return true;
     }
     if (args.len < 2) {
@@ -47,11 +48,51 @@ pub fn print(out: *std.Io.Writer, args: []const []const u8) !bool {
             try out.writeAll(section);
             return true;
         }
+        if (std.mem.eql(u8, name, "raw")) {
+            try out.writeAll(raw_tag_doc);
+            return true;
+        }
         try out.print("k4o: no help entry for tag '{s}'\n", .{name});
         return false;
     }
     return false;
 }
+
+/// `{% raw %}` is a k4o extension the oracle lacks, so its reference
+/// lives here rather than in the captured tag-details.txt.
+const tags_addendum =
+    \\
+    \\k4o extension:
+    \\  raw        Emit content literally, unevaluated (not in knap 0.6.0).
+    \\
+;
+
+const raw_tag_doc =
+    \\raw
+    \\
+    \\Emit the content between the tags literally — `{{`, `{%` and `{#`
+    \\inside are output, not tags. k4o extension: knap 0.6.0 has no
+    \\literal-text escape and rejects `{% raw %}` as an unknown tag.
+    \\
+    \\Syntax:
+    \\  {% raw %} ... {% endraw %}
+    \\
+    \\The first `{% endraw %}` tag closes the block; raw blocks do not
+    \\nest. To emit a literal `{% endraw %}`, use an output tag with a
+    \\quoted literal: {{ "{% endraw %}" }}.
+    \\
+    \\The tags follow the standalone-line whitespace rules: a clean-line
+    \\`{% raw %}` eats the rest of its line, and a column-0 clean-line
+    \\`{% endraw %}` swallows the body's trailing whitespace run.
+    \\
+    \\Example (JSON strings show exact whitespace):
+    \\Document a tag:
+    \\  Template: "Use {% raw %}{{ title }}{% endraw %} for the title."
+    \\  Output: "Use {{ title }} for the title."
+    \\
+    \\Reference: k4o help tags | k4o help syntax
+    \\
+;
 
 /// Sections in the detail files are headed `=== <name> ===` lines.
 fn sliceSection(doc: []const u8, name: []const u8) ?[]const u8 {

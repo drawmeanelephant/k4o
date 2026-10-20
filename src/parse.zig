@@ -329,6 +329,42 @@ const Parser = struct {
         return j - start;
     }
 
+    /// Everything from p.i to the next `{% endraw %}` tag is literal
+    /// text — the escape that lets a template document knap syntax. The closer
+    /// is the first `{%` tag whose first word is `endraw`; a mid-tag
+    /// `{%` (one inside another tag's bytes) is still examined, so
+    /// `{% a {% endraw %}` ends the block at the second tag. The
+    /// closer's standalone-line rule mirrors `{% endif %}`: a column-0,
+    /// clean-line `{% endraw %}` swallows the body's trailing whitespace
+    /// run, and the newline after the tag stays as emitted text either
+    /// way. Advances p.i past the closing tag.
+    fn rawBody(p: *Parser, open_start: usize) Error![]const u8 {
+        var scan = p.i;
+        while (std.mem.indexOfPos(u8, p.src, scan, "{%")) |j| {
+            const close = std.mem.indexOfPos(u8, p.src, j + 2, "%}") orelse break;
+            var q = Scanner{ .p = p, .text = p.src[j + 2 .. close], .base = j + 2 };
+            const w = q.word() orelse {
+                scan = j + 2;
+                continue;
+            };
+            if (!std.mem.eql(u8, w, "endraw")) {
+                scan = j + 2;
+                continue;
+            }
+            q.skipWs();
+            if (!q.eof()) return q.err("unexpected text in '{{% endraw %}}'", .{});
+            var body = p.src[p.i..j];
+            if (p.linePrefix(j).len == 0 and p.lineSuffixClean(close + 2)) {
+                var end = body.len;
+                while (end > 0 and isWs(body[end - 1])) end -= 1;
+                body = body[0..end];
+            }
+            p.i = close + 2;
+            return body;
+        }
+        return p.errAt(.syntax, open_start, "unclosed raw block (missing '{{% endraw %}}')", .{});
+    }
+
     /// An `{% endif %}`/`{% else %}`/`{% elseif %}` tag swallows the
     /// whitespace run that ends the branch body — `A\n  {% endif %}`
     /// leaves `A`, not `A\n`.
@@ -398,6 +434,7 @@ const Parser = struct {
                     .if_node => |ifc| try nodes.append(p.alloc, .{ .ifelse = ifc }),
                     .loop_node => |ln| try nodes.append(p.alloc, .{ .loop = ln }),
                     .set_node => |sn| try nodes.append(p.alloc, .{ .set = sn }),
+                    .raw_done => {},
                 }
             } else if (std.mem.startsWith(u8, rest, "{#")) {
                 const close = std.mem.indexOf(u8, rest, "#}") orelse
@@ -483,6 +520,8 @@ const Parser = struct {
             if_node: IfChain,
             loop_node: LoopNode,
             set_node: SetNode,
+            /// `{% raw %}…{% endraw %}` — the text node was already appended.
+            raw_done,
         };
     };
 
@@ -538,6 +577,23 @@ const Parser = struct {
                 .eof => return p.errAt(.syntax, tag_start, "unclosed for block (missing '{{% endfor %}}')", .{}),
                 else => return p.errAt(.syntax, seq.end_offset, "unexpected '{s}' tag inside a for block", .{endTagWord(seq.end)}),
             }
+        }
+        if (std.mem.eql(u8, keyword, "raw")) {
+            // k4o extension (issue #67): knap has no literal-text escape,
+            // so a template cannot document knap syntax. Everything up to
+            // `{% endraw %}` becomes one text node; the two tags join the
+            // standalone-line whitespace model like `{% if %}`/`{% endif %}`.
+            q.skipWs();
+            if (!q.eof()) return q.err("unexpected text in '{{% raw %}}'", .{});
+            if (right_clean) _ = p.eatLineEnd();
+            var body = try p.rawBody(tag_start);
+            if (!right_clean) {
+                var n: usize = 0;
+                while (n < body.len and (body[n] == ' ' or body[n] == '\t')) n += 1;
+                body = body[n..];
+            }
+            if (body.len > 0) try nodes.append(p.alloc, .{ .text = body });
+            return .{ .kind = .raw_done };
         }
         if (std.mem.eql(u8, keyword, "set")) {
             q.skipWs();
