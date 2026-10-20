@@ -132,9 +132,10 @@ pub const Interp = struct {
     globals: Scope = .empty,
     max_output: usize,
     written: usize = 0,
-    /// When a standalone `{% for %}` opened the loop, the first emitted
-    /// run of spaces/tabs is stripped — and if that run ends at a newline
-    /// the newline goes with it.
+    /// When armed, the next emitted run of spaces/tabs is stripped — and
+    /// if that run ends at a newline the newline goes with it. Armed by a
+    /// line-clean `{% for %}` for the first iteration, and by a `{%`
+    /// construct that emitted nothing.
     strip_leading: bool = false,
 
     pub fn failRender(
@@ -183,17 +184,34 @@ pub const Interp = struct {
         self.written = next;
     }
 
+    /// Whitespace-only slice — the all-blank emissions that silent `{%`
+    /// constructs drop.
+    fn allWs(t: []const u8) bool {
+        for (t) |c| {
+            if (c != ' ' and c != '\t' and c != '\n' and c != '\r') return false;
+        }
+        return true;
+    }
+
     fn put(self: *Interp, bytes_in: []const u8) Error!void {
         var bytes = bytes_in;
         if (self.strip_leading) {
             var n: usize = 0;
             while (n < bytes.len and (bytes[n] == ' ' or bytes[n] == '\t')) n += 1;
-            if (n > 0) {
-                self.strip_leading = false;
-                if (n < bytes.len and bytes[n] == '\n') n += 1;
-                bytes = bytes[n..];
-                if (bytes.len == 0) return;
+            var ate_nl = false;
+            if (n < bytes.len and bytes[n] == '\n') {
+                n += 1;
+                ate_nl = true;
+            } else if (n + 1 < bytes.len and bytes[n] == '\r' and bytes[n + 1] == '\n') {
+                n += 2;
+                ate_nl = true;
             }
+            bytes = bytes[n..];
+            // The flag discharges on the first emitted byte, or once it
+            // has eaten the newline that ends the stripped run — a chunk
+            // that starts with real content clears it too.
+            if (bytes.len > 0 or ate_nl) self.strip_leading = false;
+            if (bytes.len == 0) return;
         }
         try self.charge(bytes.len);
         self.out.writer.writeAll(bytes) catch return error.OutOfMemory;
@@ -212,7 +230,13 @@ pub const Interp = struct {
                 .text => |t| try self.put(t),
                 .output => |pl| try self.evalOutput(pl),
                 .ifelse => |chain| try self.evalIf(chain),
-                .loop => |ln| try self.evalLoop(ln),
+                .loop => |ln| {
+                    const start = self.out.written().len;
+                    try self.evalLoop(ln);
+                    // A loop that emitted nothing eats the same-line
+                    // whitespace run that follows it, like a silent if.
+                    if (self.out.written().len == start) self.strip_leading = true;
+                },
                 .set => |sn| try self.evalSet(sn),
             }
         }
@@ -289,6 +313,10 @@ pub const Interp = struct {
         const value = try self.evalChain(sn.expr, sn.offset);
         const scope = self.currentScope();
         try scope.put(self.alloc, sn.name, value);
+        // `{% set %}` emits nothing, so it eats the following same-line
+        // whitespace run — unless its own line-end eat already consumed
+        // whitespace, in which case the next line's indentation stays.
+        if (!sn.consumed) self.strip_leading = true;
     }
 
     fn currentScope(self: *Interp) *Scope {
@@ -301,15 +329,22 @@ pub const Interp = struct {
     fn evalIf(self: *Interp, chain: parse.IfChain) Error!void {
         for (chain.branches) |branch| {
             if (branch.cond) |cond_chain| {
-                if (truthy((try self.evalChain(cond_chain, branch.offset)).*)) {
-                    try self.evalNodes(branch.body);
-                    return;
-                }
-            } else {
-                try self.evalNodes(branch.body);
-                return;
+                if (!truthy((try self.evalChain(cond_chain, branch.offset)).*)) continue;
             }
+            const start = self.out.written().len;
+            try self.evalNodes(branch.body);
+            // A branch that emitted only whitespace emits nothing — but
+            // having emitted still counts for the silent-tag rule.
+            const emitted = self.out.written().len > start;
+            if (emitted and allWs(self.out.written()[start..])) {
+                self.written -= self.out.written().len - start;
+                self.out.writer.end = start;
+            }
+            if (!emitted and !chain.consumed) self.strip_leading = true;
+            return;
         }
+        // No branch taken — the if emitted nothing.
+        if (!chain.consumed) self.strip_leading = true;
     }
 
     fn evalLoop(self: *Interp, ln: parse.LoopNode) Error!void {
@@ -347,20 +382,37 @@ pub const Interp = struct {
         while (i < arr.items.len) : (i += 1) {
             self.loops.items[self.loops.items.len - 1].index = i;
             if (i > 0 and self.out.written().len > loop_start) try self.put("\n");
-            // A standalone `{% for %}` strips the body's leading
-            // spaces/tabs once — on the first emitted iteration. When the
-            // run reaches a newline the newline goes with it.
+            const iter_start = self.out.written().len;
+            // A line-clean `{% for %}` strips the body's leading
+            // spaces/tabs — plus one newline — once, on the first
+            // iteration only.
+            const prev_strip = self.strip_leading;
             if (i == 0 and ln.strip_first) self.strip_leading = true;
             try self.evalNodes(ln.body);
-            self.strip_leading = false;
+            self.strip_leading = prev_strip;
+            // An iteration that emitted only whitespace emits nothing.
+            // Otherwise each iteration discharges one trailing newline —
+            // the body's `...\n{% endfor %}` tail joins iterations instead
+            // of doubling into blank lines — and even an empty iteration
+            // discharges a pending separator newline.
+            const tail = self.out.written()[iter_start..];
+            if (tail.len > 0 and allWs(tail)) {
+                self.written -= tail.len;
+                self.out.writer.end = iter_start;
+            }
+            const written = self.out.written();
+            if (written.len > loop_start and written[written.len - 1] == '\n') {
+                self.written -= 1;
+                self.out.writer.end = written.len - 1;
+            }
         }
-        // Iterations separate with a newline, and a loop trims its
-        // trailing spaces/tabs once — the whitespace before `{% endfor
-        // %}` lands between iterations, not after the last one.
+        // The loop trims its trailing spaces/tabs once — the whitespace
+        // before `{% endfor %}` lands between iterations, not after the
+        // last one — and a trailing `\r` goes with it.
         var end = self.out.written().len;
-        while (end > 0) {
+        while (end > loop_start) {
             const c = self.out.written()[end - 1];
-            if (c != ' ' and c != '\t') break;
+            if (c != ' ' and c != '\t' and c != '\r') break;
             end -= 1;
         }
         if (end != self.out.written().len) {

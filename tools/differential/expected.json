@@ -318,5 +318,45 @@
   "date-time-only": {
     "status": "ok",
     "stdout": "15:04:05\n3:04 PM"
+  },
+  "ws-for-first-iter": {
+    "status": "ok",
+    "stdout": "A · x\nB · y\n"
+  },
+  "ws-endfor-midline": {
+    "status": "ok",
+    "stdout": "[a]\n[b]\n[c]after\n"
+  },
+  "ws-loop-empty-iters": {
+    "status": "ok",
+    "stdout": "Aa\ncZ\n"
+  },
+  "ws-loop-empty-tail": {
+    "status": "ok",
+    "stdout": "AaZ\n"
+  },
+  "ws-loop-ws-iter": {
+    "status": "ok",
+    "stdout": "xZ\n"
+  },
+  "ws-if-silent": {
+    "status": "ok",
+    "stdout": "xZ\n"
+  },
+  "ws-if-consumed": {
+    "status": "ok",
+    "stdout": "x   Z\n"
+  },
+  "ws-if-empty": {
+    "status": "ok",
+    "stdout": "xZ\n"
+  },
+  "ws-endif-indented": {
+    "status": "ok",
+    "stdout": "xB\n  Y\n"
+  },
+  "ws-set-nl": {
+    "status": "ok",
+    "stdout": "x   Z\n"
   }
 }

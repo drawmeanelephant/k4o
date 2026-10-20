@@ -656,5 +656,102 @@
     "data": {
       "x": "2024-12-01T15:04:05Z"
     }
+  },
+  {
+    "name": "ws-for-first-iter",
+    "template": "{% for i in items %}\n{{ i.a }} \u00b7 {{ i.b }}\n{% endfor %}\n",
+    "data": {
+      "items": [
+        {
+          "a": "A",
+          "b": "x"
+        },
+        {
+          "a": "B",
+          "b": "y"
+        }
+      ]
+    }
+  },
+  {
+    "name": "ws-endfor-midline",
+    "template": "{% for c in chips %}[{{ c }}]\n{% endfor %}after\n",
+    "data": {
+      "chips": [
+        "a",
+        "b",
+        "c"
+      ]
+    }
+  },
+  {
+    "name": "ws-loop-empty-iters",
+    "template": "A{% for c in cs %}{{ c.m }}{% endfor %}Z\n",
+    "data": {
+      "cs": [
+        {
+          "m": "a"
+        },
+        {},
+        {
+          "m": "c"
+        }
+      ]
+    }
+  },
+  {
+    "name": "ws-loop-empty-tail",
+    "template": "A{% for c in cs %}{{ c.m }}{% endfor %}Z\n",
+    "data": {
+      "cs": [
+        {
+          "m": "a"
+        },
+        {},
+        {}
+      ]
+    }
+  },
+  {
+    "name": "ws-loop-ws-iter",
+    "template": "x{% for c in cs %}{{ c.m }}\n{% endfor %}   Z\n",
+    "data": {
+      "cs": [
+        {}
+      ]
+    }
+  },
+  {
+    "name": "ws-if-silent",
+    "template": "x{% if f %}B{% endif %}   Z\n",
+    "data": {
+      "f": false
+    }
+  },
+  {
+    "name": "ws-if-consumed",
+    "template": "x{% if t %}   {% endif %}   Z\n",
+    "data": {
+      "t": true
+    }
+  },
+  {
+    "name": "ws-if-empty",
+    "template": "x{% if t %}{% endif %}   Z\n",
+    "data": {
+      "t": true
+    }
+  },
+  {
+    "name": "ws-endif-indented",
+    "template": "x{% if t %}B\n  {% endif %}Y\n",
+    "data": {
+      "t": true
+    }
+  },
+  {
+    "name": "ws-set-nl",
+    "template": "x{% set a = 1 %}\n   Z\n",
+    "data": {}
   }
 ]

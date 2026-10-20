@@ -130,6 +130,9 @@ pub const SetNode = struct {
     name: []const u8,
     expr: Chain,
     offset: usize,
+    /// The tag's own line-end eat consumed whitespace; like an if that
+    /// consumed, such a set leaves following whitespace alone.
+    consumed: bool,
 };
 
 /// A `??`-chain of conditions — `??` binds looser than `and`/`or`/`==`,
@@ -158,6 +161,11 @@ pub const Branch = struct {
 pub const IfChain = struct {
     branches: []Branch,
     offset: usize,
+    /// The construct's own tags consumed whitespace (a clean-line
+    /// remainder eat or an inline head-trim). An if that emits nothing
+    /// AND consumed nothing eats the whitespace run after `{% endif %}`;
+    /// one that consumed whitespace leaves the following text alone.
+    consumed: bool,
 };
 
 pub const LoopNode = struct {
@@ -165,14 +173,9 @@ pub const LoopNode = struct {
     list: Expr,
     body: []Node,
     offset: usize,
-    /// `{% endfor %}` sat on a standalone line, so the body's trailing
-    /// whitespace run must be trimmed once after the final iteration.
-    endfor_standalone: bool,
-    /// `{% endfor %}` was standalone at column 0: it eats one newline of
-    /// the rendered tail (`B1\n{% endfor %}` ends `B1`, not `B1\n`).
-    endfor_col0: bool,
-    /// `{% for %}` was standalone on its line; the body's leading
-    /// spaces/tabs are stripped once, on the first emitted iteration.
+    /// `{% for %}` ended its line cleanly; the body's leading
+    /// spaces/tabs (plus one newline) are stripped once, on the first
+    /// iteration.
     strip_first: bool,
 };
 
@@ -200,10 +203,11 @@ const SeqResult = struct {
     end_content: []const u8,
     /// Absolute offset of `end_content[0]`.
     end_content_offset: usize,
-    /// True when the terminating close tag sat on a standalone line.
-    end_standalone: bool,
-    /// True when the terminating close tag was standalone at column 0.
-    end_col0: bool,
+    /// True when the terminating close tag's line remainder was only
+    /// whitespace and `{%`/`{#` tags.
+    end_right_clean: bool,
+    /// Bytes the terminating tag's own line-end eat consumed.
+    end_ate: usize,
 };
 
 pub fn parseDocument(
@@ -280,27 +284,49 @@ const Parser = struct {
         return true;
     }
 
-    /// Whether the tag spanning [tag_start, tag_end) sits on a line whose
-    /// other content is only whitespace and `{%`/`{#` tags.
-    fn lineStandalone(p: *const Parser, tag_start: usize, tag_end: usize) bool {
+    /// The text before the tag on its line, back to the previous newline.
+    fn linePrefix(p: *const Parser, tag_start: usize) []const u8 {
         var ls = tag_start;
         while (ls > 0 and p.src[ls - 1] != '\n') ls -= 1;
-        if (!tagLineContent(p.src[ls..tag_start])) return false;
+        return p.src[ls..tag_start];
+    }
+
+    /// Whether the text before the tag on its line is only whitespace
+    /// and `{%`/`{#` tags. Drives the body-tail trim of closing tags.
+    fn linePrefixClean(p: *const Parser, tag_start: usize) bool {
+        return tagLineContent(p.linePrefix(tag_start));
+    }
+
+    /// Whether the text after the tag on its line is only whitespace
+    /// and `{%`/`{#` tags. Drives the line-end eat of open/mid tags and
+    /// the first-iteration strip of `{% for %}`.
+    fn lineSuffixClean(p: *const Parser, tag_end: usize) bool {
         var j = tag_end;
         while (j < p.src.len and p.src[j] != '\n') j += 1;
         return tagLineContent(p.src[tag_end..j]);
     }
 
-    /// After a standalone open/mid tag, consume the rest of its line:
-    /// trailing spaces/tabs plus one newline.
-    fn eatLineEnd(p: *Parser) void {
+    /// After a clean-line open/mid tag, consume the rest of its line:
+    /// spaces/tabs and `{# #}` comments, plus one newline. Stops at a
+    /// `{%`/`{{` tag, which owns its own line-end handling. Returns the
+    /// number of bytes consumed.
+    fn eatLineEnd(p: *Parser) usize {
+        const start = p.i;
         var j = p.i;
-        while (j < p.src.len and (p.src[j] == ' ' or p.src[j] == '\t')) j += 1;
-        if (j < p.src.len and p.src[j] == '\n') {
-            p.i = j + 1;
-        } else if (j + 1 < p.src.len and p.src[j] == '\r' and p.src[j + 1] == '\n') {
-            p.i = j + 2;
+        while (true) {
+            while (j < p.src.len and (p.src[j] == ' ' or p.src[j] == '\t')) j += 1;
+            if (std.mem.startsWith(u8, p.src[j..], "{#")) {
+                const close = std.mem.indexOfPos(u8, p.src, j + 2, "#}") orelse break;
+                j = close + 2;
+            } else break;
         }
+        if (j < p.src.len and p.src[j] == '\n') {
+            j += 1;
+        } else if (j + 1 < p.src.len and p.src[j] == '\r' and p.src[j + 1] == '\n') {
+            j += 2;
+        }
+        p.i = j;
+        return j - start;
     }
 
     /// An `{% endif %}`/`{% else %}`/`{% elseif %}` tag swallows the
@@ -318,34 +344,19 @@ const Parser = struct {
         }
     }
 
-    /// Drop one trailing newline (and a `\r` before it) of the body's
-    /// last text node.
-    fn dropTailNewline(nodes: []Node) void {
-        if (nodes.len == 0) return;
-        switch (nodes[nodes.len - 1]) {
-            .text => |t| {
-                var end = t.len;
-                if (end > 0 and t[end - 1] == '\n') {
-                    end -= 1;
-                    if (end > 0 and t[end - 1] == '\r') end -= 1;
-                    nodes[nodes.len - 1] = .{ .text = t[0..end] };
-                }
-            },
-            else => {},
-        }
-    }
-
     /// An inline block opener eats the same-line whitespace at the head
     /// of the body it opens (`{% if x %} a {% endif %}` -> `a`).
-    fn trimHeadSpaces(nodes: []Node) void {
-        if (nodes.len == 0) return;
+    /// Returns the number of bytes trimmed.
+    fn trimHeadSpaces(nodes: []Node) usize {
+        if (nodes.len == 0) return 0;
         switch (nodes[0]) {
             .text => |t| {
                 var n: usize = 0;
                 while (n < t.len and (t[n] == ' ' or t[n] == '\t')) n += 1;
                 if (n > 0) nodes[0] = .{ .text = t[n..] };
+                return n;
             },
-            else => {},
+            else => return 0,
         }
     }
 
@@ -369,8 +380,8 @@ const Parser = struct {
             } else if (std.mem.startsWith(u8, rest, "{%")) {
                 const tag_start = p.i;
                 const content = try p.tagContent(tag_start, "{%", "%}");
-                const standalone = p.lineStandalone(tag_start, p.i);
-                const tag = try p.parseLogicTag(content, tag_start, tag_start + 2, mode, depth, standalone, &nodes);
+                const right_clean = p.lineSuffixClean(p.i);
+                const tag = try p.parseLogicTag(content, tag_start, tag_start + 2, mode, depth, right_clean, &nodes);
                 trim_next_text = tag.trim_next;
                 switch (tag.kind) {
                     .terminated => |t| {
@@ -380,8 +391,8 @@ const Parser = struct {
                             .end_offset = tag_start,
                             .end_content = t.content,
                             .end_content_offset = t.content_offset,
-                            .end_standalone = standalone,
-                            .end_col0 = standalone and tagAtLineStart(p, tag_start),
+                            .end_right_clean = right_clean,
+                            .end_ate = t.ate,
                         };
                     },
                     .if_node => |ifc| try nodes.append(p.alloc, .{ .ifelse = ifc }),
@@ -422,8 +433,8 @@ const Parser = struct {
             .end_offset = p.src.len,
             .end_content = "",
             .end_content_offset = p.src.len,
-            .end_standalone = false,
-            .end_col0 = false,
+            .end_right_clean = false,
+            .end_ate = 0,
         };
     }
 
@@ -468,7 +479,7 @@ const Parser = struct {
         trim_next: bool = false,
 
         const Kind = union(enum) {
-            terminated: struct { end: EndTag, content: []const u8, content_offset: usize },
+            terminated: struct { end: EndTag, content: []const u8, content_offset: usize, ate: usize },
             if_node: IfChain,
             loop_node: LoopNode,
             set_node: SetNode,
@@ -482,7 +493,7 @@ const Parser = struct {
         content_offset: usize,
         mode: Mode,
         depth: usize,
-        standalone: bool,
+        right_clean: bool,
         nodes: *std.ArrayList(Node),
     ) Error!LogicTag {
         var q = Scanner{ .p = p, .text = content, .base = content_offset };
@@ -492,8 +503,9 @@ const Parser = struct {
         if (std.mem.eql(u8, keyword, "if")) {
             if (depth >= max_depth) return q.err("nesting too deep (max {d} levels)", .{max_depth});
             const chain = try q.parseChainExpr(false);
-            if (standalone) p.eatLineEnd();
-            const ifc = try p.parseIfChain(chain, tag_start, depth + 1, standalone);
+            var consumed: usize = 0;
+            if (right_clean) consumed = p.eatLineEnd();
+            const ifc = try p.parseIfChain(chain, tag_start, depth + 1, right_clean, consumed);
             return .{ .kind = .{ .if_node = ifc }, .trim_next = false };
         }
         if (std.mem.eql(u8, keyword, "for")) {
@@ -504,11 +516,11 @@ const Parser = struct {
             const list_expr = try q.parseExpr(false);
             q.skipWs();
             if (!q.eof()) return q.err("unexpected text after the for expression", .{});
-            if (standalone) {
-                p.eatLineEnd();
+            if (right_clean) {
+                _ = p.eatLineEnd();
             }
             const seq = try p.parseSeq(.loop_body, depth + 1);
-            if (!standalone) trimHeadSpaces(seq.nodes);
+            if (!right_clean) _ = trimHeadSpaces(seq.nodes);
             switch (seq.end) {
                 .endfor => {
                     var qe = Scanner{ .p = p, .text = seq.end_content, .base = seq.end_content_offset };
@@ -520,9 +532,7 @@ const Parser = struct {
                         .list = list_expr,
                         .body = seq.nodes,
                         .offset = tag_start,
-                        .endfor_standalone = seq.end_standalone,
-                        .endfor_col0 = seq.end_col0,
-                        .strip_first = standalone,
+                        .strip_first = right_clean,
                     } }, .trim_next = false };
                 },
                 .eof => return p.errAt(.syntax, tag_start, "unclosed for block (missing '{{% endfor %}}')", .{}),
@@ -537,67 +547,52 @@ const Parser = struct {
             const expr = try q.parseChainExpr(false);
             q.skipWs();
             if (!q.eof()) return q.err("unexpected text after the set expression", .{});
-            if (standalone) p.eatLineEnd();
-            return .{ .kind = .{ .set_node = .{ .name = name, .expr = expr, .offset = tag_start } }, .trim_next = !standalone };
+            var ate: usize = 0;
+            if (right_clean) ate = p.eatLineEnd();
+            return .{ .kind = .{ .set_node = .{ .name = name, .expr = expr, .offset = tag_start, .consumed = ate > 0 } }, .trim_next = !right_clean };
         }
         if (std.mem.eql(u8, keyword, "elseif")) {
             if (mode != .branch) {
                 if (p.isOpen(.branch)) return q.err("unexpected '{{% elseif %}}' inside a for block", .{});
                 return q.err("unexpected '{{% elseif %}}' outside an if block", .{});
             }
-            if (standalone) {
-                trimBodyTail(nodes.items);
-                p.eatLineEnd();
-            }
-            return .{ .kind = .{ .terminated = .{ .end = .elseif, .content = content, .content_offset = content_offset } }, .trim_next = false };
+            var ate: usize = 0;
+            if (right_clean) ate = p.eatLineEnd();
+            return .{ .kind = .{ .terminated = .{ .end = .elseif, .content = content, .content_offset = content_offset, .ate = ate } }, .trim_next = false };
         }
         if (std.mem.eql(u8, keyword, "else")) {
             if (mode != .branch) {
                 if (p.isOpen(.branch)) return q.err("unexpected '{{% else %}}' inside a for block", .{});
                 return q.err("unexpected '{{% else %}}' outside an if block", .{});
             }
-            if (standalone) {
-                trimBodyTail(nodes.items);
-                p.eatLineEnd();
-            }
-            return .{ .kind = .{ .terminated = .{ .end = .else_, .content = content, .content_offset = content_offset } }, .trim_next = false };
+            var ate: usize = 0;
+            if (right_clean) ate = p.eatLineEnd();
+            return .{ .kind = .{ .terminated = .{ .end = .else_, .content = content, .content_offset = content_offset, .ate = ate } }, .trim_next = false };
         }
         if (std.mem.eql(u8, keyword, "endif")) {
             if (mode != .branch) {
                 if (p.isOpen(.branch)) return q.err("unexpected '{{% endif %}}' inside a for block", .{});
                 return q.err("unexpected '{{% endif %}}' outside an if block", .{});
             }
-            if (standalone) {
-                trimBodyTail(nodes.items);
-                // The `\n` after `{% endif %}` stays as emitted text.
-            }
-            return .{ .kind = .{ .terminated = .{ .end = .endif, .content = content, .content_offset = content_offset } } };
+            // Only a column-0, clean-line `{% endif %}` swallows the
+            // body's trailing whitespace run (`B\n{% endif %}\n` ends
+            // `B`); indented or mid-line forms keep it (`xB\n  Y`,
+            // `xB\nY`).
+            if (p.linePrefix(tag_start).len == 0 and right_clean) trimBodyTail(nodes.items);
+            // The `\n` after `{% endif %}` stays as emitted text.
+            return .{ .kind = .{ .terminated = .{ .end = .endif, .content = content, .content_offset = content_offset, .ate = 0 } } };
         }
         if (std.mem.eql(u8, keyword, "endfor")) {
             if (mode != .loop_body) {
                 if (p.isOpen(.loop_body)) return q.err("unexpected '{{% endfor %}}' inside an if block", .{});
                 return q.err("unexpected '{{% endfor %}}' outside a for block", .{});
             }
-            if (standalone and tagAtLineStart(p, tag_start)) {
-                // A column-0 `{% endfor %}` eats the one newline that
-                // ends the line before it — including the newline a
-                // previous standalone closer left behind. An indented
-                // `  {% endfor %}` instead leaves the whitespace inside
-                // the body, where it lands between iterations.
-                dropTailNewline(nodes.items);
-            }
-            // The `\n` after `{% endfor %}` stays as emitted text.
-            return .{ .kind = .{ .terminated = .{ .end = .endfor, .content = content, .content_offset = content_offset } } };
+            // The body's trailing whitespace is handled at render time:
+            // each iteration discharges one trailing newline, and the
+            // loop trims the final whitespace run — no parse-time trim.
+            return .{ .kind = .{ .terminated = .{ .end = .endfor, .content = content, .content_offset = content_offset, .ate = 0 } } };
         }
         return q.err("unknown logic tag '{s}'", .{keyword});
-    }
-
-    /// True when nothing but the newline precedes the tag on its line —
-    /// the column-0 case of a standalone tag.
-    fn tagAtLineStart(p: *const Parser, tag_start: usize) bool {
-        var ls = tag_start;
-        while (ls > 0 and p.src[ls - 1] != '\n') ls -= 1;
-        return ls == tag_start;
     }
 
     /// Trim trailing spaces/tabs (not newlines) of the last text node —
@@ -619,7 +614,8 @@ const Parser = struct {
         first_cond: Chain,
         open_offset: usize,
         depth: usize,
-        open_standalone: bool,
+        open_right_clean: bool,
+        open_ate: usize,
     ) Error!IfChain {
         var branches = std.ArrayList(Branch).empty;
         errdefer branches.deinit(p.alloc);
@@ -627,10 +623,10 @@ const Parser = struct {
         var current_cond: ?Chain = first_cond;
         var current_open = open_offset;
         var saw_else = false;
+        var consumed = open_ate;
 
         var seq = try p.parseSeq(.branch, depth);
-        if (!open_standalone) trimHeadSpaces(seq.nodes);
-        var next_trim = false;
+        if (!open_right_clean) consumed += trimHeadSpaces(seq.nodes);
         while (true) {
             switch (seq.end) {
                 .elseif => {
@@ -641,9 +637,10 @@ const Parser = struct {
                     const chain = try q.parseChainExpr(false);
                     current_cond = chain;
                     current_open = seq.end_offset;
-                    next_trim = !seq.end_standalone;
+                    consumed += seq.end_ate;
+                    const prev_right_clean = seq.end_right_clean;
                     seq = try p.parseSeq(.branch, depth);
-                    if (next_trim) trimHeadSpaces(seq.nodes);
+                    if (!prev_right_clean) consumed += trimHeadSpaces(seq.nodes);
                 },
                 .else_ => {
                     if (saw_else) return p.errAt(.syntax, seq.end_offset, "duplicate '{{% else %}}'", .{});
@@ -655,9 +652,10 @@ const Parser = struct {
                     if (!q.eof()) return q.err("unexpected text in '{{% else %}}'", .{});
                     current_cond = null;
                     current_open = seq.end_offset;
-                    next_trim = !seq.end_standalone;
+                    consumed += seq.end_ate;
+                    const prev_right_clean = seq.end_right_clean;
                     seq = try p.parseSeq(.branch, depth);
-                    if (next_trim) trimHeadSpaces(seq.nodes);
+                    if (!prev_right_clean) consumed += trimHeadSpaces(seq.nodes);
                 },
                 .endif => {
                     try branches.append(p.alloc, .{ .cond = current_cond, .body = seq.nodes, .offset = current_open });
@@ -665,7 +663,7 @@ const Parser = struct {
                     _ = q.word();
                     q.skipWs();
                     if (!q.eof()) return q.err("unexpected text in '{{% endif %}}'", .{});
-                    return .{ .branches = try branches.toOwnedSlice(p.alloc), .offset = open_offset };
+                    return .{ .branches = try branches.toOwnedSlice(p.alloc), .offset = open_offset, .consumed = consumed > 0 };
                 },
                 .eof => return p.errAt(.syntax, open_offset, "unclosed if block (missing '{{% endif %}}')", .{}),
                 .endfor => return p.errAt(.syntax, seq.end_offset, "unexpected '{{% endfor %}}' inside an if block", .{}),
