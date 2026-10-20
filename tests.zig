@@ -323,31 +323,39 @@ test "corpus: fixtures render byte-exact" {
     try testing.expectEqual(@as(usize, 0), failures);
 }
 
-// oliver differs from markdown only on `comment` — Oliver ≥1.3 parses
-// `==…==`, `$…$`/`$$…$$` natively, so the markers are knap-faithful in
-// both formats now. `comment` keeps `<!-- -->` because a `%%` block only
-// opens at line start; those fixtures intentionally drift.
+// oliver differs from markdown only on `comment` and `table` — Oliver
+// ≥1.3 parses `==…==`, `$…$`/`$$…$$` natively, so the markers are
+// knap-faithful in both formats now. `comment` keeps `<!-- -->` because
+// a `%%` block only opens at line start; `table`'s `| - |` delimiters
+// widen to `| --- |` because Oliver's `:?-+:?` grammar needs three
+// hyphens or a colon. Those fixtures intentionally drift.
 const oliver_drift_names = [_][]const u8{
     "filter-comment-basic", "filter-comment-multiline",
+    "filter-table-basic", "render-ragged-table",
 };
 
-test "corpus: oliver format keeps only the comment passthrough" {
-    // Boundary 4's one divergence, pinned by the unit suite (the
+test "corpus: oliver format diverges only on comment and table" {
+    // Boundary 4's two divergences, pinned by the unit suite (the
     // differential runner also proves Oliver accepts the bytes).
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    const parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, "{\"x\":\"note\"}", .{});
+    var parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, "{\"x\":\"note\"}", .{});
     var d = kt.Diagnostic{};
     const ol = try kt.renderFormat(arena, "{{ x | comment }}", parsed, &d, .oliver);
     try testing.expectEqualStrings("<!--note-->", ol);
     const md = try kt.renderFormat(arena, "{{ x | comment }}", parsed, &d, .markdown);
     try testing.expectEqualStrings("%%note%%", md);
+    parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, "{\"rows\":[[\"a\",\"b\"]]}", .{});
+    const tol = try kt.renderFormat(arena, "{{ rows | table }}", parsed, &d, .oliver);
+    try testing.expectEqualStrings("|  |  |\n| --- | --- |\n| a | b |", tol);
+    const tmd = try kt.renderFormat(arena, "{{ rows | table }}", parsed, &d, .markdown);
+    try testing.expectEqualStrings("|  |  |\n| - | - |\n| a | b |", tmd);
 }
 
-test "corpus: oliver format renders without drift outside the comment filter" {
-    // The oliver format only differs from markdown on `comment`'s
-    // HTML passthrough; the corpus must render identically under it.
+test "corpus: oliver format renders without drift outside the drift set" {
+    // Apart from `comment`'s HTML passthrough and `table`'s widened
+    // delimiters, the corpus must render identically under oliver.
     var failures: usize = 0;
     outer: for (cases) |c| {
         for (oliver_drift_names) |dn| {
