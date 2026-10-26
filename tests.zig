@@ -89,6 +89,7 @@ const cases = [_]Case{
     .{ .name = "filter-kebab-basic", .template = @embedFile("fixtures/filter-kebab-basic.knap"), .data = @embedFile("fixtures/filter-kebab-basic.json"), .expected = @embedFile("fixtures/filter-kebab-basic.markdown") },
     .{ .name = "filter-last-basic", .template = @embedFile("fixtures/filter-last-basic.knap"), .data = @embedFile("fixtures/filter-last-basic.json"), .expected = @embedFile("fixtures/filter-last-basic.markdown") },
     .{ .name = "filter-length-basic", .template = @embedFile("fixtures/filter-length-basic.knap"), .data = @embedFile("fixtures/filter-length-basic.json"), .expected = @embedFile("fixtures/filter-length-basic.markdown") },
+    .{ .name = "filter-length-singleton", .template = @embedFile("fixtures/filter-length-singleton.knap"), .data = @embedFile("fixtures/filter-length-singleton.json"), .expected = @embedFile("fixtures/filter-length-singleton.markdown") },
     .{ .name = "filter-link-basic", .template = @embedFile("fixtures/filter-link-basic.knap"), .data = @embedFile("fixtures/filter-link-basic.json"), .expected = @embedFile("fixtures/filter-link-basic.markdown") },
     .{ .name = "filter-link-data-arg", .template = @embedFile("fixtures/filter-link-data-arg.knap"), .data = @embedFile("fixtures/filter-link-data-arg.json"), .expected = @embedFile("fixtures/filter-link-data-arg.markdown") },
     .{ .name = "filter-link-literal-arg", .template = @embedFile("fixtures/filter-link-literal-arg.knap"), .data = @embedFile("fixtures/filter-link-literal-arg.json"), .expected = @embedFile("fixtures/filter-link-literal-arg.markdown") },
@@ -157,6 +158,7 @@ const cases = [_]Case{
     .{ .name = "filter-wikilink-basic", .template = @embedFile("fixtures/filter-wikilink-basic.knap"), .data = @embedFile("fixtures/filter-wikilink-basic.json"), .expected = @embedFile("fixtures/filter-wikilink-basic.markdown") },
     .{ .name = "filter-wikilink-object", .template = @embedFile("fixtures/filter-wikilink-object.knap"), .data = @embedFile("fixtures/filter-wikilink-object.json"), .expected = @embedFile("fixtures/filter-wikilink-object.markdown") },
     .{ .name = "filter-yaml-basic", .template = @embedFile("fixtures/filter-yaml-basic.knap"), .data = @embedFile("fixtures/filter-yaml-basic.json"), .expected = @embedFile("fixtures/filter-yaml-basic.markdown") },
+    .{ .name = "filter-yaml-singleton", .template = @embedFile("fixtures/filter-yaml-singleton.knap"), .data = @embedFile("fixtures/filter-yaml-singleton.json"), .expected = @embedFile("fixtures/filter-yaml-singleton.markdown") },
     .{ .name = "filter-yaml_property-basic", .template = @embedFile("fixtures/filter-yaml_property-basic.knap"), .data = @embedFile("fixtures/filter-yaml_property-basic.json"), .expected = @embedFile("fixtures/filter-yaml_property-basic.markdown") },
     .{ .name = "lit-string-escapes", .template = @embedFile("fixtures/lit-string-escapes.knap"), .data = @embedFile("fixtures/lit-string-escapes.json"), .expected = @embedFile("fixtures/lit-string-escapes.markdown") },
     .{ .name = "logic-and-or-parens", .template = @embedFile("fixtures/logic-and-or-parens.knap"), .data = @embedFile("fixtures/logic-and-or-parens.json"), .expected = @embedFile("fixtures/logic-and-or-parens.markdown") },
@@ -536,6 +538,17 @@ test "unit: singleton primitive arrays unwrap" {
     try renderOk("{{ xs }}", "{\"xs\":[{\"k\":1}]}", "[{\"k\":1}]");
     try renderOk("{{ xs }}", "{\"xs\":[[1]]}", "[[1]]");
     try renderOk("{{ xs }}", "{\"xs\":[null]}", "[null]");
+}
+
+test "unit: length and yaml see the raw singleton collection" {
+    // Output and most filters unwrap a one-primitive array; these do not.
+    try renderOk("{{ xs | length }}", "{\"xs\":[\"notes\"]}", "1");
+    try renderOk("{{ xs | last | yaml:flow }}", "{\"xs\":[[1,2],[3]]}", "[3]");
+    try renderOk("{{ xs | yaml }}", "{\"xs\":[3]}", "- 3");
+    try renderOk("{{ xs | yaml_property:\"k\" }}", "{\"xs\":[\"a\"]}", "k:\n  - \"a\"");
+    // Unchanged: the unwrap still applies at output and to text filters.
+    try renderOk("{{ xs | last }}", "{\"xs\":[[1,2],[3]]}", "3");
+    try renderOk("{{ xs | reverse }}", "{\"xs\":[\"ab\"]}", "ba");
 }
 
 test "unit: loop over non-array is a render error" {

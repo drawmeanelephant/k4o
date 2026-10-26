@@ -424,7 +424,7 @@ fn yamlFilter(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*c
     if (call.params.len > 1 or (arg != null and !std.mem.eql(u8, arg.?, "flow"))) {
         return filters.badArg(it, call, "filter 'yaml' accepts only \"flow\"; omit the parameter for block YAML", .{});
     }
-    const v = try filters.normalizeInput(it, input);
+    const v = try filters.reparseCollection(it, input);
     var buf = std.ArrayList(u8).empty;
     if (arg != null) {
         try emitFlow(it, &buf, v);
@@ -454,7 +454,7 @@ fn yamlProperty(it: *Interp, call: parse.FilterCall, input: *const Value) Error!
     if (name.len == 0) {
         return filters.badArg(it, call, "filter 'yaml_property' requires one non-empty property name (e.g., yaml_property:\"director\")", .{});
     }
-    const v = try filters.normalizeInput(it, input);
+    const v = try filters.reparseCollection(it, input);
     var buf = std.ArrayList(u8).empty;
     try yamlKey(it, &buf, name);
     try buf.append(it.alloc, ':');

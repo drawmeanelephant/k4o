@@ -172,7 +172,10 @@ compare by value, so `1 == 1.0` is true regardless of representation.
 emits compact JSON — `{"k":1,"s":"x"}` — with JSON.stringify's string
 escaping and number printing. A single-element array holding a primitive
 (string, number, boolean — not `null`) unwraps to its element, so
-`{{ ["a"] }}` renders `a`.
+`{{ ["a"] }}` renders `a`. Most filters see that element too, but
+`length`, `yaml` and `yaml_property` see the array as written:
+`{{ tags | length }}` with `{"tags":["notes"]}` is `1`, and
+`{{ items | last | yaml:flow }}` with `{"items":[[1,2],[3]]}` is `[3]`.
 
 Numbers print the JavaScript way: shortest round-trip digits, decimal
 notation for exponents in `[-6, 20]`, and `d[.ddd]e±E` outside it — `2.0`

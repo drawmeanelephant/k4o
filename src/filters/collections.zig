@@ -469,7 +469,7 @@ fn firstLast(it: *Interp, input: *const Value, first: bool) Error!*const Value {
 /// String length in UTF-16 code units, array item count, or object key
 /// count; scalars count their `String()` form, null/missing count 0.
 fn length(it: *Interp, input: *const Value) Error!*const Value {
-    const v = try filters.normalizeInput(it, input);
+    const v = try filters.reparseCollection(it, input);
     const n: usize = switch (v.*) {
         .array => |arr| arr.items.len,
         .object => |obj| obj.count(),

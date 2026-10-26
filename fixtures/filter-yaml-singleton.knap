@@ -1,0 +1,5 @@
+{{ items | last | yaml:flow }}
+{{ items | first | yaml:flow }}
+{{ tags | yaml }}
+{{ tags | yaml:flow }}
+{{ tags | yaml_property:"tags" }}

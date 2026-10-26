@@ -185,7 +185,9 @@ These were pinned by oracle probes during implementation:
   (`${x}` alone substitutes); `x => ({k: v})` object construction.
 - **Singleton unwrap rule** — `{{ [prim] }}` unwraps only for
   string/number/bool elements; `[null]`, `[[]]`, `[{}]` and the
-  `undefined` sentinel stay wrapped.
+  `undefined` sentinel stay wrapped. `length`, `yaml` and `yaml_property`
+  skip the unwrap (`["notes"] | length` is `1`, `[3] | yaml:flow` is
+  `[3]`); they still reparse serialized-collection strings.
 - **`template` semantics** — `${path}` resolves nested props; `${str}`
   is the item itself; arrays iterate with blank-line joins; `${arr}`
   comma-joins; missing `${x}` → empty.

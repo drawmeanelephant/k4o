@@ -200,12 +200,7 @@ pub fn textValue(
 /// automatically" rule.
 pub fn normalizeInput(it: *Interp, input: *const Value) Error!*const Value {
     switch (input.*) {
-        .string => |s| {
-            const t = std.mem.trim(u8, s, " \t\r\n");
-            if (t.len < 2 or (t[0] != '[' and t[0] != '{')) return input;
-            const parsed = std.json.parseFromSliceLeaky(Value, it.alloc, t, .{}) catch return input;
-            return it.make(parsed);
-        },
+        .string => return reparseCollection(it, input),
         // Filters see a single-element primitive array as the element —
         // `["A b"] | fragment_link` is a scalar passthrough, matching the
         // same unwrap `{{ ["a"] }}` applies at output. Null, containers
@@ -224,6 +219,20 @@ pub fn normalizeInput(it: *Interp, input: *const Value) Error!*const Value {
         },
         else => return input,
     }
+}
+
+/// normalizeInput without the single-primitive unwrap: `length`, `yaml`
+/// and `yaml_property` see the collection as written, so `["notes"]`
+/// counts 1 and serializes as a list.
+pub fn reparseCollection(it: *Interp, input: *const Value) Error!*const Value {
+    const s = switch (input.*) {
+        .string => |s| s,
+        else => return input,
+    };
+    const t = std.mem.trim(u8, s, " \t\r\n");
+    if (t.len < 2 or (t[0] != '[' and t[0] != '{')) return input;
+    const parsed = std.json.parseFromSliceLeaky(Value, it.alloc, t, .{}) catch return input;
+    return it.make(parsed);
 }
 
 /// Recursively map the string leaves of a value: arrays map per element,
