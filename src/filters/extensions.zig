@@ -657,6 +657,8 @@ fn unicodeLower(it: *Interp, s: []const u8) Error![]const u8 {
     return out.toOwnedSlice(it.alloc);
 }
 
+const table_unparsed = "Could not parse value as JSON table data";
+
 /// `table`/`table_pretty`: pipes are compact (`| ` and ` |`), pretty
 /// pads every column to its widest cell (minimum 3) with a `---`
 /// separator row. Under `--format oliver` the compact separator widens
@@ -743,7 +745,10 @@ fn emitTable(
                 // through untouched (the oracle also warns).
                 var pending = std.ArrayList([]const []const u8).empty;
                 for (arr.items) |*item| {
-                    const cells = (try rowCells(it, item)) orelse return v;
+                    const cells = (try rowCells(it, item)) orelse {
+                        try filters.warnInput(it, call, table_unparsed, .{});
+                        return v;
+                    };
                     try pending.append(it.alloc, cells);
                     width = @max(width, cells.len);
                 }
@@ -774,7 +779,10 @@ fn emitTable(
         },
         else => {
             // Non-container input passes through untouched — scalars and
-            // non-JSON strings render as themselves (oracle-observed).
+            // non-JSON strings render as themselves (oracle-observed); a
+            // non-empty string that is not JSON at all also warns.
+            if (v.* == .string and v.string.len > 0 and !filters.jsonParses(it, v.string))
+                try filters.warnInput(it, call, table_unparsed, .{});
             return v;
         },
     }

@@ -81,13 +81,15 @@ pub fn run(
             for (opts.sets) |kv| try data.object.put(arena, kv[0], .{ .string = kv[1] });
         }
         var rd = kt.Diagnostic{};
-        const rendered = kt.renderFormatWithLimit(arena, template, data, &rd, opts.output_format, opts.max_output) catch |e| switch (e) {
+        var warnings: std.ArrayList(kt.Warning) = .empty;
+        const rendered = kt.renderFormatWithLimitWarn(arena, template, data, &rd, opts.output_format, opts.max_output, &warnings) catch |e| switch (e) {
             error.Template => {
                 report(arena, d, "record {d}: {s}", .{ i + 1, rd.message });
                 return error.Template;
             },
             error.OutOfMemory => return error.OutOfMemory,
         };
+        for (warnings.items) |w| std.debug.print("k4o: record {d}: {s}\n", .{ i + 1, try w.message(arena, template) });
         try writeFile(init, out_path, rendered);
         count += 1;
     }

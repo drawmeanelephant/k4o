@@ -171,6 +171,54 @@ pub fn paramNumber(it: *Interp, call: parse.FilterCall, i: usize) Error!?f64 {
     };
 }
 
+/// Record the oracle's non-fatal INVALID_FILTER_INPUT warning, positioned
+/// at the filter call.
+pub fn warnInput(it: *Interp, call: parse.FilterCall, comptime fmt: []const u8, args: anytype) Error!void {
+    const detail = std.fmt.allocPrint(it.alloc, fmt, args) catch return error.OutOfMemory;
+    return it.warn(.invalid_filter_input, call.name, call.offset, detail);
+}
+
+/// The undefined sentinel and null both pass through numeric filters
+/// silently in the oracle — no warning, no coercion.
+pub fn isNullish(v: *const Value) bool {
+    return switch (v.*) {
+        .null => true,
+        .number_string => |s| std.mem.eql(u8, s, "undefined"),
+        else => false,
+    };
+}
+
+/// Does `s` parse as a complete JSON document?
+pub fn jsonParses(it: *Interp, s: []const u8) bool {
+    _ = std.json.parseFromSliceLeaky(Value, it.alloc, s, .{}) catch return false;
+    return true;
+}
+
+/// The oracle's warning interpolation of a value: scalars render as their
+/// JS text, containers serialize to compact JSON, and a single-element
+/// primitive array unwraps to its element first (`["zz"]` quotes as `zz`).
+pub fn inspectValue(it: *Interp, v: *const Value) Error![]const u8 {
+    var cur = v;
+    if (v.* == .array) {
+        const items = v.array.items;
+        if (items.len == 1) {
+            switch (items[0]) {
+                .array, .object => {},
+                else => cur = &items[0],
+            }
+        }
+    }
+    switch (cur.*) {
+        .array, .object => {
+            var buf = std.Io.Writer.Allocating.init(it.alloc);
+            try it.jsStringify(cur, &buf);
+            return buf.written();
+        },
+        .null => return "null",
+        else => return (try scalarText(it.alloc, cur.*)).?,
+    }
+}
+
 /// Renders a scalar value to text; returns null for arrays and objects.
 pub fn scalarText(alloc: std.mem.Allocator, v: Value) error{OutOfMemory}!?[]const u8 {
     return switch (v) {
@@ -200,12 +248,7 @@ pub fn textValue(
 /// automatically" rule.
 pub fn normalizeInput(it: *Interp, input: *const Value) Error!*const Value {
     switch (input.*) {
-        .string => |s| {
-            const t = std.mem.trim(u8, s, " \t\r\n");
-            if (t.len < 2 or (t[0] != '[' and t[0] != '{')) return input;
-            const parsed = std.json.parseFromSliceLeaky(Value, it.alloc, t, .{}) catch return input;
-            return it.make(parsed);
-        },
+        .string => return reparseCollection(it, input),
         // Filters see a single-element primitive array as the element —
         // `["A b"] | fragment_link` is a scalar passthrough, matching the
         // same unwrap `{{ ["a"] }}` applies at output. Null, containers
@@ -224,6 +267,20 @@ pub fn normalizeInput(it: *Interp, input: *const Value) Error!*const Value {
         },
         else => return input,
     }
+}
+
+/// normalizeInput without the single-primitive unwrap: `length`, `yaml`
+/// and `yaml_property` see the collection as written, so `["notes"]`
+/// counts 1 and serializes as a list.
+pub fn reparseCollection(it: *Interp, input: *const Value) Error!*const Value {
+    const s = switch (input.*) {
+        .string => |s| s,
+        else => return input,
+    };
+    const t = std.mem.trim(u8, s, " \t\r\n");
+    if (t.len < 2 or (t[0] != '[' and t[0] != '{')) return input;
+    const parsed = std.json.parseFromSliceLeaky(Value, it.alloc, t, .{}) catch return input;
+    return it.make(parsed);
 }
 
 /// Recursively map the string leaves of a value: arrays map per element,

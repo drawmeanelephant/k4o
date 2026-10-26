@@ -380,6 +380,31 @@ const Parser = struct {
         }
     }
 
+    /// A standalone `{% elseif %}`/`{% else %}` drops its own line from
+    /// the body before it: the spaces/tabs ahead of the tag and the one
+    /// newline that ends the previous line. Blank lines above that stay
+    /// (`T\n\n\n{% else %}` leaves `T\n\n`). Comments split text
+    /// nodes, so the walk continues back across whitespace-only nodes.
+    fn dropTagLine(nodes: []Node) void {
+        var k = nodes.len;
+        while (k > 0) {
+            k -= 1;
+            const t = switch (nodes[k]) {
+                .text => |t| t,
+                else => return,
+            };
+            var end = t.len;
+            while (end > 0 and (t[end - 1] == ' ' or t[end - 1] == '\t')) end -= 1;
+            const at_newline = end > 0 and t[end - 1] == '\n';
+            if (at_newline) {
+                end -= 1;
+                if (end > 0 and t[end - 1] == '\r') end -= 1;
+            }
+            nodes[k] = .{ .text = t[0..end] };
+            if (at_newline or end > 0) return;
+        }
+    }
+
     /// An inline block opener eats the same-line whitespace at the head
     /// of the body it opens (`{% if x %} a {% endif %}` -> `a`).
     /// Returns the number of bytes trimmed.
@@ -612,6 +637,7 @@ const Parser = struct {
                 if (p.isOpen(.branch)) return q.err("unexpected '{{% elseif %}}' inside a for block", .{});
                 return q.err("unexpected '{{% elseif %}}' outside an if block", .{});
             }
+            if (right_clean and p.linePrefixClean(tag_start)) dropTagLine(nodes.items);
             var ate: usize = 0;
             if (right_clean) ate = p.eatLineEnd();
             return .{ .kind = .{ .terminated = .{ .end = .elseif, .content = content, .content_offset = content_offset, .ate = ate } }, .trim_next = false };
@@ -621,6 +647,7 @@ const Parser = struct {
                 if (p.isOpen(.branch)) return q.err("unexpected '{{% else %}}' inside a for block", .{});
                 return q.err("unexpected '{{% else %}}' outside an if block", .{});
             }
+            if (right_clean and p.linePrefixClean(tag_start)) dropTagLine(nodes.items);
             var ate: usize = 0;
             if (right_clean) ate = p.eatLineEnd();
             return .{ .kind = .{ .terminated = .{ .end = .else_, .content = content, .content_offset = content_offset, .ate = ate } }, .trim_next = false };

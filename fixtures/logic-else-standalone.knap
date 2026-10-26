@@ -1,0 +1,25 @@
+A
+{% if t %}
+  T
+  {% else %}
+  F
+{% endif %}
+B
+{% if t %}
+T
+
+
+{% elseif u %}
+U
+{% endif %}
+C
+{% if t %}
+{% if u %}
+U
+{% else %}
+NU
+{% endif %}
+{% else %}
+F {# c #}
+{% endif %}
+Z

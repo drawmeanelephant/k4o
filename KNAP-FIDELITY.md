@@ -156,6 +156,10 @@ Legend:
 - **risk** `map` arrows + `template` ${} — two embedded mini-languages.
 - **risk** Whitespace fidelity — nested standalone-tag stripping must match
   oracle bytes; currently in the exclusion list.
+- **accepted** Partial output on error — knap prints what it rendered
+  alongside a fatal error (corpus `diagnostics/unknown-filter` expects
+  `value` next to `UNKNOWN_FILTER`). k4o keeps the buffered contract:
+  same error code, empty stdout, exit 1.
 
 **Scorecard:** 78 CLI filters → 2 blocked (DOM pair), 76 implementable +
 regex engine. Weight concentrates in: typed-value
@@ -185,7 +189,20 @@ These were pinned by oracle probes during implementation:
   (`${x}` alone substitutes); `x => ({k: v})` object construction.
 - **Singleton unwrap rule** — `{{ [prim] }}` unwraps only for
   string/number/bool elements; `[null]`, `[[]]`, `[{}]` and the
-  `undefined` sentinel stay wrapped.
+  `undefined` sentinel stay wrapped. `length`, `yaml` and `yaml_property`
+  skip the unwrap (`["notes"] | length` is `1`, `[3] | yaml:flow` is
+  `[3]`); they still reparse serialized-collection strings.
+- **Non-fatal filter warnings** — where knap passes a filter's input
+  through and warns (`calc`/`round` unparseable or non-finite, invalid
+  `replace` regex, unparseable `date`/`date_modify` with a format,
+  `number_format` digits outside 0..100, and unparseable JSON for
+  `parse_json`, `nth`, `object`, `slice`, `table`/`table_pretty`), k4o
+  renders the same bytes, exits 0, and prints
+  `k4o: warning <CODE> at line <L>, column <C>: <filter>: <detail>` on
+  stderr (`INVALID_FILTER_INPUT`, or `FILTER_WARNING` for
+  `number_format`). Identical warnings from loop iterations print once.
+  Batch prefixes `record <n>: `. A fatal error drops them: stdout stays
+  empty and only the error prints.
 - **`template` semantics** — `${path}` resolves nested props; `${str}`
   is the item itself; arrays iterate with blank-line joins; `${arr}`
   comma-joins; missing `${x}` → empty.
@@ -222,3 +239,7 @@ runtime strip, not parse-time text surgery:
   one newline) — *unless the construct's own tags already consumed
   whitespace* (`x{% if t %}   {% endif %}   Z` keeps `x   Z` because the
   `   ` was eaten at parse; `x{% if f %}B{% endif %}   Z` gives `xZ`).
+- **Mid-tag line drop.** A left- and right-clean `{% elseif %}`/`{% else %}`,
+  indented or not, also drops its own line from the preceding body: the
+  `[ \t]*` before the tag and one `\r?\n` above it. Only one newline goes,
+  so blank lines above the tag survive (corpus `clipper-logic/elseif`).

@@ -37,6 +37,37 @@ pub const Pos = struct {
     column: u32,
 };
 
+/// A non-fatal filter warning — the oracle's stderr channel
+/// (INVALID_FILTER_INPUT / FILTER_WARNING). The render continues with the
+/// filter's input passed through unchanged; the warning rides alongside.
+pub const Warning = struct {
+    pub const Code = enum {
+        invalid_filter_input,
+        filter_warning,
+
+        pub fn label(code: Code) []const u8 {
+            return switch (code) {
+                .invalid_filter_input => "INVALID_FILTER_INPUT",
+                .filter_warning => "FILTER_WARNING",
+            };
+        }
+    };
+
+    code: Code,
+    /// Name of the filter that warned.
+    filter: []const u8,
+    /// Absolute byte offset of the filter name in the template.
+    offset: usize,
+    detail: []const u8,
+
+    /// `warning <CODE> at line <L>, column <C>: <filter>: <detail>` — the
+    /// CLI prefixes this with `k4o: ` like any other diagnostic.
+    pub fn message(self: Warning, alloc: std.mem.Allocator, template: []const u8) error{OutOfMemory}![]const u8 {
+        const pos = positionOf(template, self.offset);
+        return std.fmt.allocPrint(alloc, "warning {s} at line {d}, column {d}: {s}: {s}", .{ self.code.label(), pos.line, pos.column, self.filter, self.detail });
+    }
+};
+
 /// 1-based position of `offset` in `template`. Columns count Unicode code
 /// points (UTF-8 lead bytes), so one multi-byte character occupies one
 /// column.

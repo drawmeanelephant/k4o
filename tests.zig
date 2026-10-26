@@ -89,6 +89,7 @@ const cases = [_]Case{
     .{ .name = "filter-kebab-basic", .template = @embedFile("fixtures/filter-kebab-basic.knap"), .data = @embedFile("fixtures/filter-kebab-basic.json"), .expected = @embedFile("fixtures/filter-kebab-basic.markdown") },
     .{ .name = "filter-last-basic", .template = @embedFile("fixtures/filter-last-basic.knap"), .data = @embedFile("fixtures/filter-last-basic.json"), .expected = @embedFile("fixtures/filter-last-basic.markdown") },
     .{ .name = "filter-length-basic", .template = @embedFile("fixtures/filter-length-basic.knap"), .data = @embedFile("fixtures/filter-length-basic.json"), .expected = @embedFile("fixtures/filter-length-basic.markdown") },
+    .{ .name = "filter-length-singleton", .template = @embedFile("fixtures/filter-length-singleton.knap"), .data = @embedFile("fixtures/filter-length-singleton.json"), .expected = @embedFile("fixtures/filter-length-singleton.markdown") },
     .{ .name = "filter-link-basic", .template = @embedFile("fixtures/filter-link-basic.knap"), .data = @embedFile("fixtures/filter-link-basic.json"), .expected = @embedFile("fixtures/filter-link-basic.markdown") },
     .{ .name = "filter-link-data-arg", .template = @embedFile("fixtures/filter-link-data-arg.knap"), .data = @embedFile("fixtures/filter-link-data-arg.json"), .expected = @embedFile("fixtures/filter-link-data-arg.markdown") },
     .{ .name = "filter-link-literal-arg", .template = @embedFile("fixtures/filter-link-literal-arg.knap"), .data = @embedFile("fixtures/filter-link-literal-arg.json"), .expected = @embedFile("fixtures/filter-link-literal-arg.markdown") },
@@ -157,6 +158,7 @@ const cases = [_]Case{
     .{ .name = "filter-wikilink-basic", .template = @embedFile("fixtures/filter-wikilink-basic.knap"), .data = @embedFile("fixtures/filter-wikilink-basic.json"), .expected = @embedFile("fixtures/filter-wikilink-basic.markdown") },
     .{ .name = "filter-wikilink-object", .template = @embedFile("fixtures/filter-wikilink-object.knap"), .data = @embedFile("fixtures/filter-wikilink-object.json"), .expected = @embedFile("fixtures/filter-wikilink-object.markdown") },
     .{ .name = "filter-yaml-basic", .template = @embedFile("fixtures/filter-yaml-basic.knap"), .data = @embedFile("fixtures/filter-yaml-basic.json"), .expected = @embedFile("fixtures/filter-yaml-basic.markdown") },
+    .{ .name = "filter-yaml-singleton", .template = @embedFile("fixtures/filter-yaml-singleton.knap"), .data = @embedFile("fixtures/filter-yaml-singleton.json"), .expected = @embedFile("fixtures/filter-yaml-singleton.markdown") },
     .{ .name = "filter-yaml_property-basic", .template = @embedFile("fixtures/filter-yaml_property-basic.knap"), .data = @embedFile("fixtures/filter-yaml_property-basic.json"), .expected = @embedFile("fixtures/filter-yaml_property-basic.markdown") },
     .{ .name = "lit-string-escapes", .template = @embedFile("fixtures/lit-string-escapes.knap"), .data = @embedFile("fixtures/lit-string-escapes.json"), .expected = @embedFile("fixtures/lit-string-escapes.markdown") },
     .{ .name = "logic-and-or-parens", .template = @embedFile("fixtures/logic-and-or-parens.knap"), .data = @embedFile("fixtures/logic-and-or-parens.json"), .expected = @embedFile("fixtures/logic-and-or-parens.markdown") },
@@ -164,7 +166,9 @@ const cases = [_]Case{
     .{ .name = "logic-contains-object", .template = @embedFile("fixtures/logic-contains-object.knap"), .data = @embedFile("fixtures/logic-contains-object.json"), .expected = @embedFile("fixtures/logic-contains-object.markdown") },
     .{ .name = "logic-contains-string", .template = @embedFile("fixtures/logic-contains-string.knap"), .data = @embedFile("fixtures/logic-contains-string.json"), .expected = @embedFile("fixtures/logic-contains-string.markdown") },
     .{ .name = "logic-else", .template = @embedFile("fixtures/logic-else.knap"), .data = @embedFile("fixtures/logic-else.json"), .expected = @embedFile("fixtures/logic-else.markdown") },
+    .{ .name = "logic-else-standalone", .template = @embedFile("fixtures/logic-else-standalone.knap"), .data = @embedFile("fixtures/logic-else-standalone.json"), .expected = @embedFile("fixtures/logic-else-standalone.markdown") },
     .{ .name = "logic-elseif", .template = @embedFile("fixtures/logic-elseif.knap"), .data = @embedFile("fixtures/logic-elseif.json"), .expected = @embedFile("fixtures/logic-elseif.markdown") },
+    .{ .name = "logic-elseif-standalone", .template = @embedFile("fixtures/logic-elseif-standalone.knap"), .data = @embedFile("fixtures/logic-elseif-standalone.json"), .expected = @embedFile("fixtures/logic-elseif-standalone.markdown") },
     .{ .name = "logic-eq-array-nested", .template = @embedFile("fixtures/logic-eq-array-nested.knap"), .data = @embedFile("fixtures/logic-eq-array-nested.json"), .expected = @embedFile("fixtures/logic-eq-array-nested.markdown") },
     .{ .name = "logic-eq-length-mismatch", .template = @embedFile("fixtures/logic-eq-length-mismatch.knap"), .data = @embedFile("fixtures/logic-eq-length-mismatch.json"), .expected = @embedFile("fixtures/logic-eq-length-mismatch.markdown") },
     .{ .name = "logic-eq-object-order", .template = @embedFile("fixtures/logic-eq-object-order.knap"), .data = @embedFile("fixtures/logic-eq-object-order.json"), .expected = @embedFile("fixtures/logic-eq-object-order.markdown") },
@@ -536,6 +540,17 @@ test "unit: singleton primitive arrays unwrap" {
     try renderOk("{{ xs }}", "{\"xs\":[null]}", "[null]");
 }
 
+test "unit: length and yaml see the raw singleton collection" {
+    // Output and most filters unwrap a one-primitive array; these do not.
+    try renderOk("{{ xs | length }}", "{\"xs\":[\"notes\"]}", "1");
+    try renderOk("{{ xs | last | yaml:flow }}", "{\"xs\":[[1,2],[3]]}", "[3]");
+    try renderOk("{{ xs | yaml }}", "{\"xs\":[3]}", "- 3");
+    try renderOk("{{ xs | yaml_property:\"k\" }}", "{\"xs\":[\"a\"]}", "k:\n  - \"a\"");
+    // Unchanged: the unwrap still applies at output and to text filters.
+    try renderOk("{{ xs | last }}", "{\"xs\":[[1,2],[3]]}", "3");
+    try renderOk("{{ xs | reverse }}", "{\"xs\":[\"ab\"]}", "ba");
+}
+
 test "unit: loop over non-array is a render error" {
     try renderErr("{% for x in s %}a{% endfor %}", "{\"s\":\"abc\"}", "for-loop expects an array");
     try renderErr("{% for x in o %}a{% endfor %}", "{\"o\":{\"k\":1}}", "for-loop expects an array");
@@ -544,6 +559,21 @@ test "unit: loop over non-array is a render error" {
 test "unit: missing and null loop collections are empty" {
     try renderOk("A{% for x in missing %}b{% endfor %}Z", "{}", "AZ");
     try renderOk("A{% for x in n %}b{% endfor %}Z", "{\"n\":null}", "AZ");
+}
+
+test "unit: a standalone else/elseif drops its own line" {
+    // The spaces/tabs before the tag and the one newline ending the line
+    // above go; further blank lines in the body stay.
+    try renderOk("{% if a %}\nA\n{% elseif b %}\nB\n{% else %}\nC\n{% endif %}", "{\"b\":true}", "B");
+    try renderOk("A\n{% if t %}\n  T\n{% else %}\n  F\n{% endif %}\nZ", "{\"t\":true}", "A\n  T\nZ");
+    try renderOk("A\n{% if t %}\n  T\n  {% elseif u %}\n  F\n{% endif %}\nZ", "{\"t\":true}", "A\n  T\nZ");
+    try renderOk("{% if t %}\nT\n \n  {% else %}\nF\n{% endif %}", "{\"t\":true}", "T\n ");
+    try renderOk("{% if t %}\nT\n  {# c #} {% else %}\nF\n{% endif %}", "{\"t\":true}", "T");
+    try renderOk("{% if t %}\nT\n{% else %}   \nF\n{% endif %}", "{\"t\":true}", "T");
+    try renderOk("{% for i in xs %}\n{% if i == 1 %}\none\n{% else %}\nother\n{% endif %}\n{% endfor %}", "{\"xs\":[1,2]}", "one\nother");
+    // Not standalone: text after the tag, or text before it on its line.
+    try renderOk("A\n{% if t %}\nT\n{% else %}F{% endif %}\nZ", "{\"t\":true}", "A\nT\n\nZ");
+    try renderOk("A\n{% if t %}\nT\nx{% else %}\nF\n{% endif %}\nZ", "{\"t\":true}", "A\nT\nx\nZ");
 }
 
 test "unit: {% raw %} emits literal tags (issue #67)" {
@@ -599,4 +629,143 @@ test "unit: the output cap is an exact ceiling" {
 
 test "unit: a zero output limit disables the cap" {
     try renderLimitOk("{% for a in xs %}{{ a }};{% endfor %}", "{\"xs\":[1,2,3]}", 0, "1;\n2;\n3;");
+}
+/// Render and collect the non-fatal warning channel, asserting byte-exact
+/// output plus the exact formatted warnings (code, position, filter,
+/// detail) in order.
+fn renderWarnings(
+    template: []const u8,
+    data_json: []const u8,
+    expected_out: []const u8,
+    expected: []const []const u8,
+) !void {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, data_json, .{});
+    var d = kt.Diagnostic{};
+    var warnings: std.ArrayList(kt.Warning) = .empty;
+    const out = try kt.renderFormatWithLimitWarn(arena, template, parsed, &d, .markdown, kt.default_max_output, &warnings);
+    testing.expectEqualStrings(expected_out, out) catch |e| {
+        std.debug.print("render mismatch\n--- expected ---\n{s}\n--- actual ---\n{s}\n---\n", .{ expected_out, out });
+        return e;
+    };
+    if (warnings.items.len != expected.len) {
+        std.debug.print("expected {d} warning(s), got {d}:\n", .{ expected.len, warnings.items.len });
+        for (warnings.items) |w| {
+            std.debug.print("  {s}\n", .{w.message(arena, template) catch "?"});
+        }
+        return error.TestUnexpectedResult;
+    }
+    for (expected, 0..) |exp, i| {
+        const msg = try warnings.items[i].message(arena, template);
+        testing.expectEqualStrings(exp, msg) catch |e| {
+            std.debug.print("warning {d} mismatch\n--- expected ---\n{s}\n--- actual ---\n{s}\n---\n", .{ i, exp, msg });
+            return e;
+        };
+    }
+}
+
+test "unit: calc warns on unparseable and non-finite input" {
+    try renderWarnings("{{ value | calc:\"+1\" }}", "{\"value\":\"42abc\"}", "42abc", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 12: calc: Could not parse \"42abc\" as a number",
+    });
+    try renderWarnings("{{ v | calc:\"*10\" }}", "{\"v\":1e308}", "1e+308", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: calc: Calculation produced a non-finite result for \"1e+308\"",
+    });
+    try renderWarnings("{{ v | calc:\"+1\" }}", "{\"v\":\"Infinity\"}", "Infinity", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: calc: Could not parse \"Infinity\" as a number",
+    });
+    // Null and missing input pass through silently.
+    try renderWarnings("{{ value | calc:\"+1\" }}", "{\"value\":null}", "", &.{});
+    try renderWarnings("{{ value | calc:\"+1\" }}", "{}", "", &.{});
+    // Valid input never warns.
+    try renderWarnings("{{ value | calc:\"+1\" }}", "{\"value\":5}", "6", &.{});
+}
+
+test "unit: round warns on unparseable scalars and non-finite rounding" {
+    try renderWarnings("{{ value | round:1 }}", "{\"value\":\"42abc\"}", "42abc", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 12: round: Could not parse \"42abc\" as a number",
+    });
+    try renderWarnings("{{ v | round:2 }}", "{\"v\":1e308}", "1e+308", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: round: Rounding produced a non-finite result for \"1e+308\"",
+    });
+    try renderWarnings("{{ v | round:2 }}", "{\"v\":[1e308]}", "1e+308", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: round: Could not round one or more non-finite collection values",
+    });
+    // Collections with non-numeric members, null and missing stay silent.
+    try renderWarnings("{{ v | round:1 }}", "{\"v\":[\"zz\"]}", "zz", &.{});
+    try renderWarnings("{{ v | round:1 }}", "{\"v\":[\"a\",\"b\"]}", "[\"a\",\"b\"]", &.{});
+    try renderWarnings("{{ v | round:1 }}", "{\"v\":null}", "", &.{});
+    try renderWarnings("{{ v | round:2 }}", "{\"v\":2.675}", "2.68", &.{});
+}
+
+test "unit: replace and date warn like the oracle's pass-through case" {
+    const template = "{{ value | replace:\"/[/\":\"x\" }}\n{{ published | date:\"YYYY-MM-DD\" }}";
+    try renderWarnings(template, "{\"value\":\"a[b\",\"published\":\"not-a-date\"}", "a[b\nnot-a-date", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 12: replace: Invalid regular expression: /[/: unterminated character class",
+        "warning INVALID_FILTER_INPUT at line 2, column 16: date: Could not parse \"not-a-date\" as a date",
+    });
+    // Bare `date` renders "Invalid Date" without a warning.
+    try renderWarnings("{{ v | date }}", "{\"v\":\"junk\"}", "Invalid Date", &.{});
+    try renderWarnings("{{ v | date_modify:\"+1 day\" }}", "{\"v\":\"junk\"}", "junk", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: date_modify: Could not parse \"junk\" as a date",
+    });
+}
+
+test "unit: warnings dedup identical failures across loop iterations" {
+    try renderWarnings("{% for x in xs %}{{ x | calc:\"+1\" }};{% endfor %}", "{\"xs\":[\"a\",\"a\",\"b\"]}", "a;\na;\nb;", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 25: calc: Could not parse \"a\" as a number",
+        "warning INVALID_FILTER_INPUT at line 1, column 25: calc: Could not parse \"b\" as a number",
+    });
+}
+
+test "unit: number_format out-of-range decimals warns only on numeric input" {
+    try renderWarnings("{{ v | number_format:200 }}", "{\"v\":5}", "5", &.{
+        "warning FILTER_WARNING at line 1, column 8: number_format: Could not format number: toFixed() digits argument must be between 0 and 100",
+    });
+    try renderWarnings("{{ v | number_format:200 }}", "{\"v\":\"abc\"}", "abc", &.{});
+    try renderWarnings("{{ v | number_format:200 }}", "{\"v\":null}", "", &.{});
+}
+
+test "unit: structured filters warn on unparseable input" {
+    try renderWarnings("{{ v | parse_json }}", "{\"v\":\"nope\"}", "nope", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: parse_json: Could not parse value as JSON",
+    });
+    try renderWarnings("{{ v | nth:1 }}", "{\"v\":\"hello\"}", "hello", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: nth: Could not parse value as a JSON array",
+    });
+    try renderWarnings("{{ v | nth:1 }}", "{\"v\":\"\"}", "", &.{});
+    try renderWarnings("{{ v | nth:1 }}", "{\"v\":\"5\"}", "5", &.{});
+    try renderWarnings("{{ v | object:\"keys\" }}", "{\"v\":\"hello\"}", "hello", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: object: Could not parse value as JSON",
+    });
+    try renderWarnings("{{ v | object:\"keys\" }}", "{\"v\":null}", "", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: object: Could not parse value as JSON",
+    });
+    try renderWarnings("{{ v | object:\"keys\" }}", "{\"v\":5}", "5", &.{});
+    try renderWarnings("{{ v | slice:1 }}", "{\"v\":\"[bad\"}", "bad", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: slice: Could not parse structured value as JSON",
+    });
+    try renderWarnings("{{ v | slice:1 }}", "{\"v\":\"  [bad\"}", " [bad", &.{});
+    try renderWarnings("{{ v | table }}", "{\"v\":\"hello\"}", "hello", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: table: Could not parse value as JSON table data",
+    });
+    try renderWarnings("{{ v | table }}", "{\"v\":\"\"}", "", &.{});
+    try renderWarnings("{{ v | table }}", "{\"v\":5}", "5", &.{});
+    try renderWarnings("{{ v | table }}", "{\"v\":[[1],5]}", "[[1],5]", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: table: Could not parse value as JSON table data",
+    });
+    try renderWarnings("{{ v | table_pretty }}", "{\"v\":\"hello\"}", "hello", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: table_pretty: Could not parse value as JSON table data",
+    });
+    // Singleton arrays unwrap first: `["x"]` is the unparseable string x
+    // for object, but nth just picks its first element.
+    try renderWarnings("{{ v | object:\"keys\" }}", "{\"v\":[\"x\"]}", "x", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: object: Could not parse value as JSON",
+    });
+    try renderWarnings("{{ v | nth:1 }}", "{\"v\":[\"hello\"]}", "hello", &.{});
+    try renderWarnings("{{ v | parse_json }}", "{\"v\":\"\"}", "", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: parse_json: Could not parse value as JSON",
+    });
 }

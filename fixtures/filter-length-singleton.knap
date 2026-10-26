@@ -1,0 +1,4 @@
+{{ tags | length }}
+{{ tags | length | yaml }}
+{{ nums | length }}
+{{ serialized | length }}
