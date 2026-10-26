@@ -208,6 +208,13 @@ check_cli_stderr "CLI rejects an empty --data= value" "$VERIFY_DIR/16-data-empty
 check_cli_stderr "a second positional suggests --data" "$VERIFY_DIR/17-second-positional" \
   "did you mean --data" "$BIN" render "$REPO/examples/heading.knap" "$REPO/examples/heading.json"
 
+# Non-fatal filter warnings ride on stderr while the render completes; a
+# fatal error later in the same template still empties stdout.
+check_zero "a filter warning keeps the full render and exit 0" "$VERIFY_DIR/41-warning.log" \
+  bash -c "out=\$('$BIN' render -t '{{ v | calc:\"+1\" }}!' --data-json '{\"v\":\"42abc\"}' 2>'$VERIFY_DIR/41-warning.err') && [ \"\$out\" = '42abc!' ] && grep -qxF 'k4o: warning INVALID_FILTER_INPUT at line 1, column 8: calc: Could not parse \"42abc\" as a number' '$VERIFY_DIR/41-warning.err'"
+check_cli_stderr "a fatal error after a warning still empties stdout" "$VERIFY_DIR/42-warning-fatal" \
+  "unknown filter" "$BIN" render -t '{{ v | calc:"+1" }}{{ v | nope }}' --data-json '{"v":"42abc"}'
+
 # Deep JSON data: structural comparison answers correctly at any depth the
 # parser accepts (issue #47), and interpolating a container past Stringify's
 # fixed nesting stack is a diagnostic, not a panic (issue #48 — the crash was

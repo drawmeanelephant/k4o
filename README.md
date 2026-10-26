@@ -65,6 +65,10 @@ zig-out/bin/k4o --version
 - Exit codes: `0` on success, `1` on any error. The message goes to stderr
   and stdout stays empty — rendering is buffered, so partially rendered
   output is never emitted.
+- Like knap, a filter that passes bad input through unchanged (`calc` on
+  `"42abc"`, an invalid `replace` regex, an unparseable `date`) prints a
+  non-fatal `k4o: warning <CODE> at line <L>, column <C>: <filter>: <detail>`
+  on stderr. The render still completes and exits `0`.
 
 ### Output formats
 
@@ -483,9 +487,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 27 passed, 0 failed |
-| `passthrough` | 0 passed, 27 failed |
-| `noeval` | 0 passed, 27 failed |
+| `normal` | 35 passed, 0 failed |
+| `passthrough` | 0 passed, 35 failed |
+| `noeval` | 0 passed, 35 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification

@@ -12,7 +12,9 @@
 //!
 //! Exit codes: 0 = success, 1 = any error. On error the message goes to
 //! stderr and stdout stays empty — rendering is buffered, so partially
-//! rendered output is never emitted. `lint` reports findings on stdout and
+//! rendered output is never emitted. Non-fatal filter warnings (knap's
+//! pass-through warnings) go to stderr and leave the exit code at 0.
+//! `lint` reports findings on stdout and
 //! exits 0 when every file is clean, 1 otherwise. `init` reports what it
 //! created, left untouched, or archived, and exits 0 unless the filesystem
 //! fails.
@@ -344,7 +346,8 @@ fn runRender(init: std.process.Init, args: [][]const u8) !u8 {
     const root = resolveData(init, arena, &opts, &stdin_used, true) catch return 1;
 
     var d = kt.Diagnostic{};
-    const out = kt.renderFormatWithLimit(arena, template, root, &d, opts.format, opts.max_output) catch |e| switch (e) {
+    var warnings: std.ArrayList(kt.Warning) = .empty;
+    const out = kt.renderFormatWithLimitWarn(arena, template, root, &d, opts.format, opts.max_output, &warnings) catch |e| switch (e) {
         error.Template => {
             report("{s}", .{if (d.message.len > 0) d.message else "template error"});
             return 1;
@@ -354,6 +357,7 @@ fn runRender(init: std.process.Init, args: [][]const u8) !u8 {
             return 1;
         },
     };
+    for (warnings.items) |w| report("{s}", .{try w.message(arena, template)});
 
     return writeOutput(init, arena, opts.output_path, out);
 }

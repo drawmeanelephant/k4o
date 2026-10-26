@@ -81,6 +81,24 @@ pub fn renderFormatWithLimit(
     format: Format,
     max_output: usize,
 ) Error![]const u8 {
+    var warnings: std.ArrayList(diag.Warning) = .empty;
+    return renderFormatWithLimitWarn(alloc, template, data, d, format, max_output, &warnings);
+}
+
+/// As `renderFormatWithLimit`, additionally collecting the oracle's
+/// non-fatal filter warnings (INVALID_FILTER_INPUT / FILTER_WARNING) into
+/// `warnings`, in the order the filters ran. The list is appended to, so a
+/// batch caller can reuse one list per record. On the error path the
+/// collected warnings are meaningless and callers drop them.
+pub fn renderFormatWithLimitWarn(
+    alloc: std.mem.Allocator,
+    template: []const u8,
+    data: std.json.Value,
+    d: *diag.Diagnostic,
+    format: Format,
+    max_output: usize,
+    warnings: *std.ArrayList(diag.Warning),
+) Error![]const u8 {
     if (passthrough_mode) {
         // Red-verification mutant: a goldbrick engine that returns the
         // template unchanged (no parsing, no validation, no filters).
@@ -102,6 +120,7 @@ pub fn renderFormatWithLimit(
         .root = data,
         .format = format,
         .max_output = max_output,
+        .warns = warnings,
     };
     try interp.checkDepth(data, 1);
     try interp.evalNodes(doc.nodes);
@@ -131,6 +150,8 @@ pub const Interp = struct {
     loops: std.ArrayList(LoopFrame) = .empty,
     globals: Scope = .empty,
     max_output: usize,
+    /// Non-fatal filter warnings, in evaluation order.
+    warns: *std.ArrayList(diag.Warning),
     written: usize = 0,
     /// When armed, the next emitted run of spaces/tabs is stripped — and
     /// if that run ends at a newline the newline goes with it. Armed by a
@@ -145,6 +166,24 @@ pub const Interp = struct {
         args: anytype,
     ) error{Template} {
         return diag.fail(self.alloc, self.diag, .render, self.template, offset, fmt, args);
+    }
+
+    /// Record a non-fatal filter warning (the oracle's stderr channel).
+    /// Identical (code, filter, position, detail) warnings dedup — a loop
+    /// over equal values reports the failure once, matching the oracle.
+    pub fn warn(
+        self: *Interp,
+        code: diag.Warning.Code,
+        filter_name: []const u8,
+        offset: usize,
+        detail: []const u8,
+    ) error{OutOfMemory}!void {
+        for (self.warns.items) |w| {
+            if (w.code == code and w.offset == offset and
+                std.mem.eql(u8, w.filter, filter_name) and
+                std.mem.eql(u8, w.detail, detail)) return;
+        }
+        try self.warns.append(self.alloc, .{ .code = code, .filter = filter_name, .offset = offset, .detail = detail });
     }
 
     /// The oracle's LIMIT_EXCEEDED for values deeper than max_value_depth.

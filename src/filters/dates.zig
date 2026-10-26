@@ -1620,6 +1620,7 @@ fn dateFilter(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*c
         // value renders dayjs's literal "Invalid Date". With an argument
         // present the oracle warns and passes the input through.
         if (call.params.len == 0) return it.make(.{ .string = "Invalid Date" });
+        try filters.warnInput(it, call, "Could not parse \"{s}\" as a date", .{try filters.inspectValue(it, input)});
         return input;
     }
     const out = try formatDate(it, call, fmt, ms.?, zone);
@@ -1682,7 +1683,10 @@ fn dateModify(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*c
     if (text.len == 0) return input;
     const zone = try it.alloc.create(Zone);
     zone.* = loadZone(it.alloc);
-    var ms = parseLenient(text, zone) orelse return input;
+    var ms = parseLenient(text, zone) orelse {
+        try filters.warnInput(it, call, "Could not parse \"{s}\" as a date", .{try filters.inspectValue(it, input)});
+        return input;
+    };
 
     switch (unit) {
         0, 1 => { // year, month: set-field with day clamped to month length

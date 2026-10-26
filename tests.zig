@@ -630,3 +630,142 @@ test "unit: the output cap is an exact ceiling" {
 test "unit: a zero output limit disables the cap" {
     try renderLimitOk("{% for a in xs %}{{ a }};{% endfor %}", "{\"xs\":[1,2,3]}", 0, "1;\n2;\n3;");
 }
+/// Render and collect the non-fatal warning channel, asserting byte-exact
+/// output plus the exact formatted warnings (code, position, filter,
+/// detail) in order.
+fn renderWarnings(
+    template: []const u8,
+    data_json: []const u8,
+    expected_out: []const u8,
+    expected: []const []const u8,
+) !void {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const parsed = try std.json.parseFromSliceLeaky(std.json.Value, arena, data_json, .{});
+    var d = kt.Diagnostic{};
+    var warnings: std.ArrayList(kt.Warning) = .empty;
+    const out = try kt.renderFormatWithLimitWarn(arena, template, parsed, &d, .markdown, kt.default_max_output, &warnings);
+    testing.expectEqualStrings(expected_out, out) catch |e| {
+        std.debug.print("render mismatch\n--- expected ---\n{s}\n--- actual ---\n{s}\n---\n", .{ expected_out, out });
+        return e;
+    };
+    if (warnings.items.len != expected.len) {
+        std.debug.print("expected {d} warning(s), got {d}:\n", .{ expected.len, warnings.items.len });
+        for (warnings.items) |w| {
+            std.debug.print("  {s}\n", .{w.message(arena, template) catch "?"});
+        }
+        return error.TestUnexpectedResult;
+    }
+    for (expected, 0..) |exp, i| {
+        const msg = try warnings.items[i].message(arena, template);
+        testing.expectEqualStrings(exp, msg) catch |e| {
+            std.debug.print("warning {d} mismatch\n--- expected ---\n{s}\n--- actual ---\n{s}\n---\n", .{ i, exp, msg });
+            return e;
+        };
+    }
+}
+
+test "unit: calc warns on unparseable and non-finite input" {
+    try renderWarnings("{{ value | calc:\"+1\" }}", "{\"value\":\"42abc\"}", "42abc", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 12: calc: Could not parse \"42abc\" as a number",
+    });
+    try renderWarnings("{{ v | calc:\"*10\" }}", "{\"v\":1e308}", "1e+308", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: calc: Calculation produced a non-finite result for \"1e+308\"",
+    });
+    try renderWarnings("{{ v | calc:\"+1\" }}", "{\"v\":\"Infinity\"}", "Infinity", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: calc: Could not parse \"Infinity\" as a number",
+    });
+    // Null and missing input pass through silently.
+    try renderWarnings("{{ value | calc:\"+1\" }}", "{\"value\":null}", "", &.{});
+    try renderWarnings("{{ value | calc:\"+1\" }}", "{}", "", &.{});
+    // Valid input never warns.
+    try renderWarnings("{{ value | calc:\"+1\" }}", "{\"value\":5}", "6", &.{});
+}
+
+test "unit: round warns on unparseable scalars and non-finite rounding" {
+    try renderWarnings("{{ value | round:1 }}", "{\"value\":\"42abc\"}", "42abc", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 12: round: Could not parse \"42abc\" as a number",
+    });
+    try renderWarnings("{{ v | round:2 }}", "{\"v\":1e308}", "1e+308", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: round: Rounding produced a non-finite result for \"1e+308\"",
+    });
+    try renderWarnings("{{ v | round:2 }}", "{\"v\":[1e308]}", "1e+308", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: round: Could not round one or more non-finite collection values",
+    });
+    // Collections with non-numeric members, null and missing stay silent.
+    try renderWarnings("{{ v | round:1 }}", "{\"v\":[\"zz\"]}", "zz", &.{});
+    try renderWarnings("{{ v | round:1 }}", "{\"v\":[\"a\",\"b\"]}", "[\"a\",\"b\"]", &.{});
+    try renderWarnings("{{ v | round:1 }}", "{\"v\":null}", "", &.{});
+    try renderWarnings("{{ v | round:2 }}", "{\"v\":2.675}", "2.68", &.{});
+}
+
+test "unit: replace and date warn like the oracle's pass-through case" {
+    const template = "{{ value | replace:\"/[/\":\"x\" }}\n{{ published | date:\"YYYY-MM-DD\" }}";
+    try renderWarnings(template, "{\"value\":\"a[b\",\"published\":\"not-a-date\"}", "a[b\nnot-a-date", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 12: replace: Invalid regular expression: /[/: unterminated character class",
+        "warning INVALID_FILTER_INPUT at line 2, column 16: date: Could not parse \"not-a-date\" as a date",
+    });
+    // Bare `date` renders "Invalid Date" without a warning.
+    try renderWarnings("{{ v | date }}", "{\"v\":\"junk\"}", "Invalid Date", &.{});
+    try renderWarnings("{{ v | date_modify:\"+1 day\" }}", "{\"v\":\"junk\"}", "junk", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: date_modify: Could not parse \"junk\" as a date",
+    });
+}
+
+test "unit: warnings dedup identical failures across loop iterations" {
+    try renderWarnings("{% for x in xs %}{{ x | calc:\"+1\" }};{% endfor %}", "{\"xs\":[\"a\",\"a\",\"b\"]}", "a;\na;\nb;", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 25: calc: Could not parse \"a\" as a number",
+        "warning INVALID_FILTER_INPUT at line 1, column 25: calc: Could not parse \"b\" as a number",
+    });
+}
+
+test "unit: number_format out-of-range decimals warns only on numeric input" {
+    try renderWarnings("{{ v | number_format:200 }}", "{\"v\":5}", "5", &.{
+        "warning FILTER_WARNING at line 1, column 8: number_format: Could not format number: toFixed() digits argument must be between 0 and 100",
+    });
+    try renderWarnings("{{ v | number_format:200 }}", "{\"v\":\"abc\"}", "abc", &.{});
+    try renderWarnings("{{ v | number_format:200 }}", "{\"v\":null}", "", &.{});
+}
+
+test "unit: structured filters warn on unparseable input" {
+    try renderWarnings("{{ v | parse_json }}", "{\"v\":\"nope\"}", "nope", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: parse_json: Could not parse value as JSON",
+    });
+    try renderWarnings("{{ v | nth:1 }}", "{\"v\":\"hello\"}", "hello", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: nth: Could not parse value as a JSON array",
+    });
+    try renderWarnings("{{ v | nth:1 }}", "{\"v\":\"\"}", "", &.{});
+    try renderWarnings("{{ v | nth:1 }}", "{\"v\":\"5\"}", "5", &.{});
+    try renderWarnings("{{ v | object:\"keys\" }}", "{\"v\":\"hello\"}", "hello", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: object: Could not parse value as JSON",
+    });
+    try renderWarnings("{{ v | object:\"keys\" }}", "{\"v\":null}", "", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: object: Could not parse value as JSON",
+    });
+    try renderWarnings("{{ v | object:\"keys\" }}", "{\"v\":5}", "5", &.{});
+    try renderWarnings("{{ v | slice:1 }}", "{\"v\":\"[bad\"}", "bad", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: slice: Could not parse structured value as JSON",
+    });
+    try renderWarnings("{{ v | slice:1 }}", "{\"v\":\"  [bad\"}", " [bad", &.{});
+    try renderWarnings("{{ v | table }}", "{\"v\":\"hello\"}", "hello", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: table: Could not parse value as JSON table data",
+    });
+    try renderWarnings("{{ v | table }}", "{\"v\":\"\"}", "", &.{});
+    try renderWarnings("{{ v | table }}", "{\"v\":5}", "5", &.{});
+    try renderWarnings("{{ v | table }}", "{\"v\":[[1],5]}", "[[1],5]", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: table: Could not parse value as JSON table data",
+    });
+    try renderWarnings("{{ v | table_pretty }}", "{\"v\":\"hello\"}", "hello", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: table_pretty: Could not parse value as JSON table data",
+    });
+    // Singleton arrays unwrap first: `["x"]` is the unparseable string x
+    // for object, but nth just picks its first element.
+    try renderWarnings("{{ v | object:\"keys\" }}", "{\"v\":[\"x\"]}", "x", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: object: Could not parse value as JSON",
+    });
+    try renderWarnings("{{ v | nth:1 }}", "{\"v\":[\"hello\"]}", "hello", &.{});
+    try renderWarnings("{{ v | parse_json }}", "{\"v\":\"\"}", "", &.{
+        "warning INVALID_FILTER_INPUT at line 1, column 8: parse_json: Could not parse value as JSON",
+    });
+}

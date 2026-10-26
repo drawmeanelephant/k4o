@@ -14,8 +14,9 @@
 //!   `number_format:2` gives 2.67, exactly like the oracle.
 //!
 //! Warning-only outcomes in the oracle ("Could not parse ...", non-finite
-//! results) pass the input through unchanged here — the k4o diagnostic
-//! channel is fatal-only, and stdout bytes are the contract.
+//! results) pass the input through unchanged — stdout bytes are the
+//! contract — and additionally report on the non-fatal warning channel
+//! (diag.Warning), which the CLI prints to stderr with an exit-0 status.
 
 const std = @import("std");
 const filters = @import("../filters.zig");
@@ -353,7 +354,19 @@ fn calc(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*const V
     const rhs = (if (operand_text.len == 0) null else jsNumber(operand_text)) orelse
         return filters.badArg(it, call, "filter 'calc' requires a number after the operator (e.g., \"+10\")", .{});
 
-    const lhs = (try coerceNumber(it, input)) orelse return input;
+    // The oracle skips null/undefined silently; anything else that fails
+    // strict numeric parsing warns and passes through.
+    if (filters.isNullish(input)) return input;
+    const lhs = (try coerceNumber(it, input)) orelse {
+        try filters.warnInput(it, call, "Could not parse \"{s}\" as a number", .{try filters.inspectValue(it, input)});
+        return input;
+    };
+    if (!std.math.isFinite(lhs)) {
+        // Number("Infinity") is non-finite input — the oracle reports it
+        // as unparseable rather than as a non-finite result.
+        try filters.warnInput(it, call, "Could not parse \"{s}\" as a number", .{try filters.inspectValue(it, input)});
+        return input;
+    }
     var result = switch (op) {
         .add => lhs + rhs,
         .sub => lhs - rhs,
@@ -361,7 +374,10 @@ fn calc(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*const V
         .div => lhs / rhs,
         .pow => std.math.pow(f64, lhs, rhs),
     };
-    if (!std.math.isFinite(result)) return input;
+    if (!std.math.isFinite(result)) {
+        try filters.warnInput(it, call, "Calculation produced a non-finite result for \"{s}\"", .{try engine.jsFloat(it.alloc, lhs)});
+        return input;
+    }
 
     // The oracle rounds through toFixed(10): parse that string back.
     if (@abs(result) < 1e21) {
@@ -388,11 +404,38 @@ fn numberFormat(it: *Interp, call: parse.FilterCall, input: *const Value) Error!
     // truncation for fractions; outside 0..100 the oracle warns and keeps
     // the input.
     var d = if (std.math.isNan(decimals)) 0 else @trunc(decimals);
-    if (d < 0 or d > 100) return input;
+    if (d < 0 or d > 100) {
+        // toFixed() throws RangeError outside 0..100; the oracle
+        // downgrades that to a FILTER_WARNING and keeps the input — but
+        // only when a numeric leaf exists to format at all.
+        if (try hasFormattableLeaf(it, try filters.normalizeInput(it, input))) {
+            try it.warn(.filter_warning, call.name, call.offset, "Could not format number: toFixed() digits argument must be between 0 and 100");
+        }
+        return input;
+    }
     const places: u32 = @intFromFloat(d);
     _ = &d;
     const wrapped = Wrapped{ .places = places, .ctx = ctx };
     return mapNumbers(it, input, wrapped, coerceParseFloat, formatLeaf);
+}
+
+/// Any leaf that number_format would actually format (parseFloat-style).
+fn hasFormattableLeaf(it: *Interp, v: *const Value) Error!bool {
+    switch (v.*) {
+        .array => |arr| {
+            for (arr.items) |*item| {
+                if (try hasFormattableLeaf(it, item)) return true;
+            }
+            return false;
+        },
+        .object => |obj| {
+            for (obj.values()) |*item| {
+                if (try hasFormattableLeaf(it, item)) return true;
+            }
+            return false;
+        },
+        else => return (try coerceParseFloat(it, v)) != null,
+    }
 }
 
 const NfCtx = struct {
@@ -457,7 +500,61 @@ fn round(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*const 
             return filters.badArg(it, call, "filter 'round' decimal places must be non-negative (e.g., round:2)", .{});
     }
 
+    try roundWarnings(it, call, input, decimals);
     return mapNumbers(it, input, decimals, coerceNumber, roundLeaf);
+}
+
+/// The oracle's warning channel for round: a scalar that fails strict
+/// numeric parsing warns (null/undefined pass silently), a scalar whose
+/// rounding overflows warns, and a collection with any non-finite leaf
+/// earns one collective warning. Classification uses the un-flattened
+/// input — a singleton array counts as a collection even though the
+/// numeric map unwraps it.
+fn roundWarnings(it: *Interp, call: parse.FilterCall, input: *const Value, decimals: f64) Error!void {
+    const v = try filters.reparseCollection(it, input);
+    switch (v.*) {
+        .array, .object => {
+            if (try roundLeafFails(it, v, decimals)) {
+                try filters.warnInput(it, call, "Could not round one or more non-finite collection values", .{});
+            }
+        },
+        else => {
+            if (filters.isNullish(v)) return;
+            const n = (try coerceNumber(it, v)) orelse {
+                try filters.warnInput(it, call, "Could not parse \"{s}\" as a number", .{try filters.inspectValue(it, v)});
+                return;
+            };
+            if (!std.math.isFinite(n)) {
+                try filters.warnInput(it, call, "Could not parse \"{s}\" as a number", .{try filters.inspectValue(it, v)});
+                return;
+            }
+            if ((try roundLeaf(decimals, it, n)) == null) {
+                try filters.warnInput(it, call, "Rounding produced a non-finite result for \"{s}\"", .{try engine.jsFloat(it.alloc, n)});
+            }
+        },
+    }
+}
+
+/// Does any numeric leaf of `v` fail the round (non-finite result)?
+fn roundLeafFails(it: *Interp, v: *const Value, decimals: f64) Error!bool {
+    switch (v.*) {
+        .array => |arr| {
+            for (arr.items) |*item| {
+                if (try roundLeafFails(it, item, decimals)) return true;
+            }
+            return false;
+        },
+        .object => |obj| {
+            for (obj.values()) |*item| {
+                if (try roundLeafFails(it, item, decimals)) return true;
+            }
+            return false;
+        },
+        else => {
+            const n = (try coerceNumber(it, v)) orelse return false;
+            return (try roundLeaf(decimals, it, n)) == null;
+        },
+    }
 }
 
 /// The oracle's decimal-shift round: split the JS number string on 'e',

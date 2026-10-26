@@ -64,7 +64,7 @@ pub fn apply(
     if (eql(u8, name, "merge")) return merge(it, call, input);
     if (eql(u8, name, "nth")) return nth(it, call, input);
     if (eql(u8, name, "object")) return objectFilter(it, call, input);
-    if (eql(u8, name, "parse_json")) return parseJson(it, input);
+    if (eql(u8, name, "parse_json")) return parseJson(it, call, input);
     if (eql(u8, name, "reverse")) return reverse(it, input);
     if (eql(u8, name, "slice")) return slice(it, call, input);
     if (eql(u8, name, "sort")) return sort(it, call, input);
@@ -568,6 +568,8 @@ fn splitTopCommas(it: *Interp, s: []const u8) Error![]const []const u8 {
 /// A quoted argument is never a valid pattern (oracle-observed).
 fn nth(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*const Value {
     const v = try filters.normalizeInput(it, input);
+    if (input.* == .string and input.string.len > 0 and !filters.jsonParses(it, input.string))
+        try filters.warnInput(it, call, "Could not parse value as a JSON array", .{});
     if (call.params.len == 0) return v;
     if (v.* != .array) return v;
 
@@ -746,17 +748,28 @@ fn objectFilter(it: *Interp, call: parse.FilterCall, input: *const Value) Error!
                 }
             }
         },
-        else => return v,
+        else => {
+            const unparsed = switch (v.*) {
+                .string => |s| !filters.jsonParses(it, s),
+                else => filters.isNullish(v),
+            };
+            if (unparsed) try filters.warnInput(it, call, "Could not parse value as JSON", .{});
+            return v;
+        },
     }
     return makeArray(it, items.items);
 }
 
 /// JSON text re-parsed into a typed value; anything that does not parse —
-/// and any non-string input — passes through unchanged.
-fn parseJson(it: *Interp, input: *const Value) Error!*const Value {
+/// and any non-string input — passes through unchanged. A string that
+/// fails to parse earns the oracle's non-fatal warning.
+fn parseJson(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*const Value {
     switch (input.*) {
         .string, .number_string => |s| {
-            const parsed = std.json.parseFromSliceLeaky(Value, it.alloc, s, .{}) catch return input;
+            const parsed = std.json.parseFromSliceLeaky(Value, it.alloc, s, .{}) catch {
+                try filters.warnInput(it, call, "Could not parse value as JSON", .{});
+                return input;
+            };
             return it.make(parsed);
         },
         else => return input,
@@ -814,6 +827,8 @@ fn slice(it: *Interp, call: parse.FilterCall, input: *const Value) Error!*const 
         },
         .null => return v,
         else => {
+            if (v.* == .string and v.string.len > 0 and (v.string[0] == '[' or v.string[0] == '{'))
+                try filters.warnInput(it, call, "Could not parse structured value as JSON", .{});
             const s = try toTextScalar(it, v);
             const units = try toUnits(it, s);
             const span = sliceRange(start, end, units.len);

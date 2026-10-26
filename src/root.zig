@@ -15,10 +15,12 @@ pub const lint = @import("lint.zig");
 pub const init = @import("init.zig");
 
 pub const Diagnostic = diag.Diagnostic;
+pub const Warning = diag.Warning;
 pub const render = engine.render;
 pub const renderWithLimit = engine.renderWithLimit;
 pub const renderFormat = engine.renderFormat;
 pub const renderFormatWithLimit = engine.renderFormatWithLimit;
+pub const renderFormatWithLimitWarn = engine.renderFormatWithLimitWarn;
 pub const Format = engine.Format;
 pub const default_max_output = engine.default_max_output;
 pub const Error = engine.Error;

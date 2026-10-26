@@ -182,7 +182,12 @@ fn applyPairs(
             var detail: []const u8 = "";
             const rex = re.compile(it.alloc, spec.pattern, spec.flags, &detail) catch |e| switch (e) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.InvalidPattern => continue, // knap: new RegExp throws -> pair is a no-op
+                // knap: new RegExp throws -> pair is a no-op, reported as a
+                // non-fatal warning naming the pattern.
+                error.InvalidPattern => {
+                    try filters.warnInput(it, call, "Invalid regular expression: {s}: {s}", .{ spec_text, detail });
+                    continue;
+                },
                 error.StepLimit => unreachable,
             };
             text = try applyRegex(it, call, &rex, units, repl_u16);
