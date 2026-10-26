@@ -1,4 +1,4 @@
-<!-- k4o init knap-tour v2 -->
+<!-- k4o init knap-tour v3 -->
 # knap in one page
 
 Knap is a template language: template + JSON data in, Markdown-family text
@@ -41,7 +41,7 @@ reference variables (like `a[loop.index0]`) are not in the subset.
 Filters transform a value. Chains run left to right:
 `{{ name | italic | h2 }}`.
 
-The complete filter registry (24 names — there are no others):
+The complete filter registry (25 names — there are no others):
 
 | Filter | Argument | Emits (Textile form shown) |
 | --- | --- | --- |
@@ -55,6 +55,16 @@ The complete filter registry (24 names — there are no others):
 | `list` | none | `* item` (nested `**`) |
 | `numbered` | none | `# item` (nested `##`) |
 | `table` | none | `\|_. name\|` rows |
+| `footnote` | none | `[^1]: text` blocks |
+| `wikilink` | alias | `[[target\|alias]]` |
+| `embed` | alias | `![[target\|alias]]` |
+| `image` | alt | `![alt](url)` |
+| `fragment_link` | url or `text:url` | `text [link](url#:~:text=…)` |
+| `yaml` | `flow` optional | block/flow YAML, quoted strings |
+| `yaml_property` | key | `key: value`, nested children |
+| `indent` | width optional | N-space line padding |
+| `kebab` | none | `hello-world` |
+| `callout` | tuple (required) | `> [!tip] Note` + `> ` lines (`[!type]-` collapsed) |
 
 Phrase filters (`h1`–`h6`, `bold`, `italic`, `code`, `blockquote`, `link`)
 require single-line text. `list`/`numbered`/`table` require arrays. `table`
@@ -106,6 +116,20 @@ Inside a loop, `loop` exposes `loop.index` (1-based), `loop.index0`,
 `loop.first`, `loop.last`, `loop.length`. Iterating a non-array is a render
 error. Nested loops multiply — see knap-gotchas.md.
 
+## Assignment: `{% set name = expr %}`
+
+`{% set slug = title | kebab %}` binds `slug` to the filtered value for the
+rest of the render — later `{{ slug }}` and `{% if slug %}` see it, shadowing
+a data key of the same name. The right side is a full pipeline: filters and
+`??` chains work. Like a block opener, the tag consumes one newline after it.
+
+## Fallback: `a ?? b`
+
+`{{ title ?? "Untitled" }}` emits the right side when the left is missing or
+`null`; chains run left to right (`a ?? b ?? c`). `|` binds tighter:
+`a|upper ?? "D"` filters `a` before falling back. Works in output tags,
+`{% set %}`, condition operands and `{% for %}` lists.
+
 ## Comments: `{# … #}`
 
 ```text
@@ -124,7 +148,7 @@ throw.
 ## Whitespace (the part everyone gets wrong)
 
 - One newline immediately after an opening tag (`{% if %}`, `{% elseif %}`,
-  `{% else %}`, `{% for %}`) is consumed once, so branches and loop bodies
+  `{% else %}`, `{% for %}`, `{% set %}`) is consumed once, so branches and loop bodies
   join naturally.
 - The newline before a closing tag is preserved — place it deliberately.
 - In Markdown/GFM output, loop iterations join with a newline and one
@@ -151,5 +175,7 @@ the local `k4o` binary.
 `image:"alt"` emits `![alt](url)`. `fragment_link:"text:url"` emits a
 `#:~:text=` deep link (default link text "link"). `yaml` / `yaml_property:"k"`
 emit the documented YAML forms (`yaml:flow` for `[a,b]`); `indent:N` pads each
-line N spaces; `kebab` slugifies. Collections collapse to typed arrays for
+line N spaces; `kebab` slugifies; `callout:("tip", "Note")` emits a
+`> [!tip] Note` blockquote with every message line prefixed `> ` (a third
+`true` item collapses: `> [!tip]-`). Collections collapse to typed arrays for
 chaining — `x | wikilink | yaml_property:"k"` yields a real list.

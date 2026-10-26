@@ -102,6 +102,9 @@ const Interp = struct {
     root: std.json.Value,
     format: Format,
     loops: std.ArrayList(LoopFrame) = .empty,
+    /// `{% set %}` bindings: shadow data keys (and are shadowed in turn by
+    /// loop variables) for the rest of the render.
+    vars: std.StringHashMapUnmanaged(std.json.Value) = .empty,
     max_output: usize,
     written: usize = 0,
 
@@ -143,6 +146,7 @@ const Interp = struct {
             switch (node) {
                 .text => |t| try self.put(t),
                 .output => |pl| try self.evalOutput(pl),
+                .set => |sn| try self.evalSet(sn),
                 .ifelse => |chain| try self.evalIf(chain),
                 .loop => |ln| try self.evalLoop(ln),
             }
@@ -150,13 +154,35 @@ const Interp = struct {
     }
 
     fn evalOutput(self: *Interp, pl: parse.Pipeline) Error!void {
-        var value = try self.resolveExpr(pl.value);
-        var markup = false;
-        for (pl.filters) |call| {
-            value = try filters.apply(self.alloc, self.diag, self.template, call, value, self.root, self.format, markup);
-            markup = true;
+        try self.writeValue(try self.evalPipelineChain(&pl));
+    }
+
+    fn evalSet(self: *Interp, sn: parse.SetNode) Error!void {
+        try self.vars.put(self.alloc, sn.name, try self.evalPipelineChain(&sn.pipeline));
+    }
+
+    /// Evaluates a `??` chain of pipelines: each stage's value expression is
+    /// resolved first, and a missing/null result moves to the next stage
+    /// before any filters run — so a filter never has to decide what a nil
+    /// input means. The last stage runs its filters regardless, preserving
+    /// the no-fallback behavior (e.g. `{{ missing | list }}` still errors).
+    fn evalPipelineChain(self: *Interp, pl: *const parse.Pipeline) Error!std.json.Value {
+        var cur: ?*const parse.Pipeline = pl;
+        while (cur) |p| : (cur = p.fallback) {
+            var value = try self.resolveExpr(p.value);
+            const missing = switch (value) {
+                .null => true,
+                else => false,
+            };
+            if (missing and p.fallback != null) continue;
+            var markup = false;
+            for (p.filters) |call| {
+                value = try filters.apply(self.alloc, self.diag, self.template, call, value, self.root, self.format, markup);
+                markup = true;
+            }
+            return value;
         }
-        try self.writeValue(value);
+        unreachable;
     }
 
     fn evalIf(self: *Interp, chain: parse.IfChain) Error!void {
@@ -236,6 +262,13 @@ const Interp = struct {
         return switch (expr) {
             .literal => |lit| literalValue(lit),
             .path => |p| self.resolvePath(p),
+            .fallback => |fb| blk: {
+                const lhs = try self.resolveExpr(fb.lhs.*);
+                break :blk switch (lhs) {
+                    .null => try self.resolveExpr(fb.rhs.*),
+                    else => lhs,
+                };
+            },
         };
     }
 
@@ -257,6 +290,13 @@ const Interp = struct {
                 current = try self.loopObject(frame);
                 found = true;
                 break;
+            }
+        }
+        // `{% set %}` variables shadow data keys but never loop variables.
+        if (!found) {
+            if (self.vars.get(path.root)) |v| {
+                current = v;
+                found = true;
             }
         }
         if (!found) {

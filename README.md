@@ -89,6 +89,8 @@ documentation (see the clean-room record below):
 | Logic | `{% if expr %} … {% elseif expr %} … {% else %} … {% endif %}` | Operators: `==` `!=` `<` `<=` `>` `>=`, `contains` (substring or array member), `and`/`&&`, `or`/`||`, `not`/`!`, parentheses. `==`/`!=` compare the whole value structurally, so objects and arrays work and key order does not matter; `<`/`<=`/`>`/`>=` are numbers and strings only. |
 | Truthiness | — | `false`, `null`, missing values, `""`, `0`, and `[]` are false; everything else true. |
 | Loops | `{% for item in array %} … {% endfor %}` | Loop values: `loop.index` (1-based), `loop.index0`, `loop.first`, `loop.last`, `loop.length`. Iterating a non-array is a render error. **Nested loops multiply** — see [Output size](#output-size). |
+| Assignment | `{% set name = value \| filter %}` | Binds `name` to the (filtered) value for the rest of the render; later `{{ name }}` and `{% if name %}` see it, shadowing a data key of the same name. One newline after the tag is consumed, like a block opener. |
+| Fallback | `{{ a ?? "default" }}` | `a ?? b` yields `b` when `a` is missing or `null`. Chains left to right, and `\|` binds tighter: `a\|f ?? b\|g` is `(a\|f) ?? (b\|g)`. Also works in `{% set %}`, condition operands and `{% for %}` lists. |
 | Comments | `{# … #}` | Single- or multi-line; removed from the output; never evaluated; unclosed is a syntax error. |
 | Missing values | — | Render as empty text; are false in conditions. |
 
@@ -156,6 +158,11 @@ So with `{"name":"Example","url":"https://example.com/post"}`:
 {{ name | link:url }}      -> "Example":https://example.com/post
 {{ name | link:"url" }}    -> "Example":url
 ```
+
+`callout` is the exception to single-value arguments: it takes a parenthesized,
+comma-separated tuple of quoted strings plus an optional trailing `true`/`false` —
+`callout:("tip", "Note")`, or `callout:("info", "Details", true)` for a collapsed
+callout.
 
 The bare form exists because the common case is a URL that lives in the data,
 and the alternative is unreachable: there is no syntax for putting a
@@ -245,7 +252,7 @@ k4o lint: 1 problem(s) in 1 of 1 file(s)
 - **Stable exit codes.** `0` when every file is clean, `1` when any file has
   findings or cannot be read. Findings go to stdout.
 - **Static scope.** lint checks what is knowable without data: template
-  syntax, the 24-filter registry, argument arity, and the `link` URL rules
+  syntax, the 25-filter registry, argument arity, and the `link` URL rules
   that a literal argument already violates. Data-dependent failures (a loop
   over a non-array, a ragged table) are render errors and stay with
   `k4o render`.
@@ -304,7 +311,7 @@ on stderr.
 
 ## Filter registry → output formats
 
-This is the complete registry (24 names). The fixture corpus pins all three
+This is the complete registry (25 names). The fixture corpus pins all three
 formats byte-for-byte for every filter, reusing `.markdown` expectations for
 non-table GFM output and `.gfm` expectations for tables. The Markdown table is
 raw HTML because pipe tables are a GFM extension, not part of CommonMark 0.31.2.
@@ -322,6 +329,16 @@ The GFM format changes only that row of the registry.
 | `list` | — | `* item`; nested `**`/`***` | `- item`; nested tab-indented lists |
 | `numbered` | — | `# item`; nested `##`/`###` | `1. item`, `2. item`; nested ordered lists |
 | `table` | — | `\|_. name\|` then `\|Ada\|` | `<table>` with `<thead>`, `<tbody>`, escaped cells |
+| `footnote` | — | `[^1]: text` blocks (`[^slug]:` for object keys) | same as Textile |
+| `wikilink` | alias | `[[target\|alias]]` | same as Textile |
+| `embed` | alias | `![[target\|alias]]` | same as Textile |
+| `image` | alt | `![alt](url)` | same as Textile |
+| `fragment_link` | url or `text:url` (required) | `text [link](url#:~:text=…)` | same as Textile |
+| `yaml` | `flow` | block/flow YAML; strings double-quoted | same as Textile |
+| `yaml_property` | key (required) | `key: value`, children indented | same as Textile |
+| `indent` | width | N-space line prefix (default 2) | same as Textile |
+| `kebab` | — | `hello-world` | same as Textile |
+| `callout` | tuple (required) | `> [!tip] Note` + `> ` lines (`[!type]-` when collapsed) | same as Textile |
 
 In Markdown and GFM, `code` emits nothing for empty input. All-space input
 remains a code span containing exactly the original spaces, without padding.
@@ -423,7 +440,6 @@ the product:
 - **The rest of Knap's broader filter catalog** (data/serialization filters
   such as `yaml`, `calc`, `parse_json`, `date`, `truncate`, `map`, `where`, …).
 - **Regex features** and **whitespace-control operators** (`{%- … -%}`).
-- **`{% set %}` assignment** and the **`??` fallback operator**.
 - **Batch/CSV modes and `--output` file flags** from the reference CLI; only
   `render` with stdout is provided.
 - **Bracket expressions that reference variables** (e.g. `a[loop.index0]`);
@@ -455,9 +471,9 @@ locally with `tools/verify.sh --update-readme`.
 <!-- verify-table:start -->
 | Mode | Result |
 | --- | --- |
-| `normal` | 77 passed, 0 failed |
-| `passthrough` | 0 passed, 77 failed |
-| `markdown` | 0 passed, 77 failed |
+| `normal` | 84 passed, 0 failed |
+| `passthrough` | 0 passed, 84 failed |
+| `markdown` | 0 passed, 84 failed |
 <!-- verify-table:end -->
 
 CI runs builds and tests on Linux and macOS at Zig 0.17.0. The verification

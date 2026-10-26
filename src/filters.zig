@@ -50,6 +50,7 @@ pub const entries = [_]Entry{
     .{ .name = "yaml_property", .takes_arg = true },
     .{ .name = "indent", .takes_arg = true },
     .{ .name = "kebab", .takes_arg = false },
+    .{ .name = "callout", .takes_arg = true },
 };
 
 pub fn registry() []const Entry {
@@ -219,10 +220,79 @@ pub fn apply(
     if (std.mem.eql(u8, call.name, "yaml_property")) {
         return .{ .string = try emitYamlProperty(alloc, d, template, call, input, root) };
     }
+    if (std.mem.eql(u8, call.name, "callout")) {
+        return .{ .string = try emitCallout(alloc, d, template, call, input) };
+    }
 
     // Unreachable: the registry check above guarantees every name is
     // handled by one of the branches.
     unreachable;
+}
+
+/// `> [!type] Title` followed by every message line as `> line`. The
+/// optional third tuple item collapses the callout (`> [!type]- Title`).
+/// Emitted identically in every format — like the other referential
+/// filters, Textile has no callout construct, so passthrough is the only
+/// honest mapping.
+fn emitCallout(
+    alloc: std.mem.Allocator,
+    d: *diag.Diagnostic,
+    template: []const u8,
+    call: parse.FilterCall,
+    input: std.json.Value,
+) error{ Template, OutOfMemory }![]u8 {
+    const arg = call.arg orelse
+        return badArg(alloc, d, template, call, "filter 'callout' requires a tuple argument, e.g. callout:(\"note\", \"Title\")", .{});
+    const items = switch (arg) {
+        .tuple => |t| t,
+        else => return badArg(alloc, d, template, call, "filter 'callout' requires a tuple argument, e.g. callout:(\"note\", \"Title\")", .{}),
+    };
+    if (items.len < 2 or items.len > 3)
+        return badArg(alloc, d, template, call, "filter 'callout' expects (type, title) or (type, title, collapsed)", .{});
+    const callout_type = switch (items[0]) {
+        .string => |s| s,
+        else => return badArg(alloc, d, template, call, "filter 'callout' type must be a quoted string", .{}),
+    };
+    const title = switch (items[1]) {
+        .string => |s| s,
+        else => return badArg(alloc, d, template, call, "filter 'callout' title must be a quoted string", .{}),
+    };
+    const collapsed = if (items.len == 3) switch (items[2]) {
+        .boolean => |b| b,
+        else => return badArg(alloc, d, template, call, "filter 'callout' collapsed flag must be 'true' or 'false'", .{}),
+    } else false;
+    for (callout_type) |ch| {
+        if (ch == '\n' or ch == '\r' or ch == ']')
+            return badArg(alloc, d, template, call, "filter 'callout' type must be a single line without ']'", .{});
+    }
+    for (title) |ch| {
+        if (ch == '\n' or ch == '\r')
+            return badArg(alloc, d, template, call, "filter 'callout' title must be a single line", .{});
+    }
+    const text = (try scalarText(alloc, input)) orelse
+        return failRender(alloc, d, template, call.offset, "filter 'callout' expects a text value, but got {s}", .{typeName(input)});
+
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(alloc);
+    try buf.appendSlice(alloc, "> [!");
+    try buf.appendSlice(alloc, callout_type);
+    try buf.append(alloc, ']');
+    if (collapsed) try buf.append(alloc, '-');
+    if (title.len > 0) {
+        try buf.append(alloc, ' ');
+        try buf.appendSlice(alloc, title);
+    }
+    var rest = text;
+    while (rest.len > 0) {
+        try buf.appendSlice(alloc, "\n> ");
+        const nl = std.mem.indexOfScalar(u8, rest, '\n') orelse {
+            try buf.appendSlice(alloc, rest);
+            break;
+        };
+        try buf.appendSlice(alloc, rest[0..nl]);
+        rest = rest[nl + 1 ..];
+    }
+    return buf.toOwnedSlice(alloc);
 }
 
 /// `[[target]]` / `![[target]]` with optional `|alias` argument. Arrays and
@@ -747,7 +817,7 @@ pub fn schemeName(url: []const u8) []const u8 {
 /// the data root first, so `link:url` means the value of `url` rather than
 /// the four characters `url`; with no such key it stays a literal, which
 /// preserves the documented bare-word behaviour. Quoting forces the literal
-/// (`link:"url"`).
+/// (`link:"url"`). A tuple argument (`callout:(...)`) has no text form.
 fn argText(
     alloc: std.mem.Allocator,
     d: *diag.Diagnostic,
@@ -759,6 +829,7 @@ fn argText(
     return switch (arg) {
         .string => |s| s,
         .number => |n| try std.fmt.allocPrint(alloc, "{d}", .{n}),
+        .tuple => badArg(alloc, d, template, call, "filter '{s}' expects a scalar argument, not a tuple", .{call.name}),
         .bare => |name| blk: {
             const resolved = switch (root) {
                 .object => |obj| obj.get(name),

@@ -30,6 +30,9 @@ pub const Path = struct {
 pub const Expr = union(enum) {
     literal: Literal,
     path: Path,
+    /// `a ?? b`: yields `b` when `a` resolves to missing or null. Chains
+    /// right (`a ?? b ?? c` is `a ?? (b ?? c)`).
+    fallback: struct { lhs: *Expr, rhs: *Expr },
 };
 
 pub const CmpOp = enum { eq, ne, lt, le, gt, ge, contains };
@@ -46,6 +49,9 @@ pub const Arg = union(enum) {
     bare: []const u8,
     string: []const u8,
     number: f64,
+    /// `callout:("tip", "Note", true)` — a parenthesized, comma-separated
+    /// list of literals (quoted strings and the bare words `true`/`false`).
+    tuple: []const Literal,
 };
 
 pub const FilterCall = struct {
@@ -58,6 +64,10 @@ pub const FilterCall = struct {
 pub const Pipeline = struct {
     value: Expr,
     filters: []FilterCall,
+    /// `??` fallback chain: when this stage's value resolves to missing or
+    /// null, the fallback pipeline is evaluated instead (before this
+    /// stage's filters run — `|` binds tighter than `??`).
+    fallback: ?*Pipeline,
     /// Absolute byte offset of the opening `{{`.
     offset: usize,
 };
@@ -65,6 +75,7 @@ pub const Pipeline = struct {
 pub const Node = union(enum) {
     text: []const u8,
     output: Pipeline,
+    set: SetNode,
     ifelse: IfChain,
     loop: LoopNode,
 };
@@ -85,6 +96,13 @@ pub const LoopNode = struct {
     var_name: []const u8,
     list: Expr,
     body: []Node,
+    offset: usize,
+};
+
+pub const SetNode = struct {
+    name: []const u8,
+    pipeline: Pipeline,
+    /// Absolute offset of the `{%` that opened the tag.
     offset: usize,
 };
 
@@ -162,6 +180,12 @@ const Parser = struct {
         return ptr;
     }
 
+    fn makeExpr(p: *Parser, e: Expr) Error!*Expr {
+        const ptr = try p.alloc.create(Expr);
+        ptr.* = e;
+        return ptr;
+    }
+
     fn parseSeq(p: *Parser, mode: Mode, depth: usize) Error!SeqResult {
         p.modes[p.mode_depth] = mode;
         p.mode_depth += 1;
@@ -194,6 +218,18 @@ const Parser = struct {
                     },
                     .if_node => |ifc| try nodes.append(p.alloc, .{ .ifelse = ifc }),
                     .loop_node => |ln| try nodes.append(p.alloc, .{ .loop = ln }),
+                    .set_node => |sn| {
+                        try nodes.append(p.alloc, .{ .set = sn });
+                        // `{% set %}` is a standalone statement tag: like a
+                        // block opener it consumes one newline immediately
+                        // after it (corpus: `{% set x = v %}\n` emits no `\n`).
+                        const after = p.src[p.i..];
+                        if (std.mem.startsWith(u8, after, "\r\n")) {
+                            p.i += 2;
+                        } else if (std.mem.startsWith(u8, after, "\n")) {
+                            p.i += 1;
+                        }
+                    },
                 }
             } else if (std.mem.startsWith(u8, rest, "{#")) {
                 const close = std.mem.indexOf(u8, rest, "#}") orelse
@@ -260,6 +296,7 @@ const Parser = struct {
         terminated: struct { end: EndTag, content: []const u8, content_offset: usize },
         if_node: IfChain,
         loop_node: LoopNode,
+        set_node: SetNode,
     };
 
     fn parseLogicTag(
@@ -285,7 +322,7 @@ const Parser = struct {
             const var_name = q.word() orelse return q.err("expected a loop variable name after 'for'", .{});
             q.skipWs();
             if (!q.matchWord("in")) return q.err("expected 'in' in for tag", .{});
-            const list_expr = try q.parseExpr(false);
+            const list_expr = try q.parseOperandExpr(false);
             q.skipWs();
             if (!q.eof()) return q.err("unexpected text after the for expression", .{});
             const seq = try p.parseSeq(.loop_body, depth + 1);
@@ -305,6 +342,17 @@ const Parser = struct {
                 .eof => return p.errAt(.syntax, tag_start, "unclosed for block (missing '{{% endfor %}}')", .{}),
                 else => return p.errAt(.syntax, seq.end_offset, "unexpected '{s}' tag inside a for block", .{endTagWord(seq.end)}),
             }
+        }
+        if (std.mem.eql(u8, keyword, "set")) {
+            const var_name = q.word() orelse return q.err("expected a variable name after 'set'", .{});
+            q.skipWs();
+            if (!q.matchOp("=")) return q.err("expected '=' between the name and the value in '{{% set %}}'", .{});
+            const pipeline = try q.scanPipeline(tag_start);
+            return .{ .set_node = .{
+                .name = var_name,
+                .pipeline = pipeline,
+                .offset = tag_start,
+            } };
         }
         if (std.mem.eql(u8, keyword, "elseif")) {
             if (mode != .branch) {
@@ -391,38 +439,7 @@ const Parser = struct {
 
     fn parsePipeline(p: *Parser, content: []const u8, tag_start: usize) Error!Pipeline {
         var q = Scanner{ .p = p, .text = content, .base = tag_start + 2 };
-        const value = try q.parseExpr(true);
-        var filter_list = std.ArrayList(FilterCall).empty;
-        errdefer filter_list.deinit(p.alloc);
-        while (true) {
-            q.skipWs();
-            if (q.eof()) break;
-            if (q.peek() == '|') {
-                q.pos += 1;
-                q.skipWs();
-                const fstart = q.pos;
-                const name = q.word() orelse return q.err("expected a filter name after '|'", .{});
-                var arg: ?Arg = null;
-                q.skipWs();
-                if (!q.eof() and q.peek() == ':') {
-                    q.pos += 1;
-                    q.skipWs();
-                    arg = try q.parseArg();
-                }
-                try filter_list.append(p.alloc, .{
-                    .name = name,
-                    .arg = arg,
-                    .offset = tag_start + 2 + fstart,
-                });
-            } else {
-                return q.err("unexpected text in output tag (expected '|' or end of tag)", .{});
-            }
-        }
-        return .{
-            .value = value,
-            .filters = try filter_list.toOwnedSlice(p.alloc),
-            .offset = tag_start,
-        };
+        return q.scanPipeline(tag_start);
     }
 };
 
@@ -542,6 +559,52 @@ const Scanner = struct {
         return .{ .integer = n };
     }
 
+    /// Parses one pipeline stage (`expr | filter | filter:arg …`), then any
+    /// `??` fallback stages recursively. `??` binds looser than `|`:
+    /// `a|f ?? b|g` is `(a|f) ?? (b|g)`. `tag_start` is the absolute offset
+    /// of the tag that opened this pipeline, for diagnostics.
+    fn scanPipeline(s: *Scanner, tag_start: usize) Error!Pipeline {
+        const value = try s.parseExpr(true);
+        var filter_list = std.ArrayList(FilterCall).empty;
+        errdefer filter_list.deinit(s.p.alloc);
+        var fallback: ?*Pipeline = null;
+        while (true) {
+            s.skipWs();
+            if (s.eof()) break;
+            if (s.peek() == '|') {
+                s.pos += 1;
+                s.skipWs();
+                const fstart = s.pos;
+                const name = s.word() orelse return s.err("expected a filter name after '|'", .{});
+                var arg: ?Arg = null;
+                s.skipWs();
+                if (!s.eof() and s.peek() == ':') {
+                    s.pos += 1;
+                    s.skipWs();
+                    arg = try s.parseArg();
+                }
+                try filter_list.append(s.p.alloc, .{
+                    .name = name,
+                    .arg = arg,
+                    .offset = s.base + fstart,
+                });
+            } else if (s.matchOp("??")) {
+                const fb = try s.p.alloc.create(Pipeline);
+                fb.* = try s.scanPipeline(tag_start);
+                fallback = fb;
+                break;
+            } else {
+                return s.err("unexpected text in output tag (expected '|' or end of tag)", .{});
+            }
+        }
+        return .{
+            .value = value,
+            .filters = try filter_list.toOwnedSlice(s.p.alloc),
+            .fallback = fallback,
+            .offset = tag_start,
+        };
+    }
+
     fn parseExpr(s: *Scanner, spaced_names: bool) Error!Expr {
         s.skipWs();
         const c = s.peek() orelse return s.err("expected a value", .{});
@@ -560,6 +623,24 @@ const Scanner = struct {
         return .{ .path = try s.parsePath(spaced_names) };
     }
 
+    /// An expression with an optional `??` fallback chain. Used where a bare
+    /// value — not a pipeline — is wanted: condition operands and the
+    /// `{% for %}` list.
+    fn parseOperandExpr(s: *Scanner, spaced_names: bool) Error!Expr {
+        const expr = try s.parseExpr(spaced_names);
+        const save = s.pos;
+        s.skipWs();
+        if (!s.matchOp("??")) {
+            s.pos = save;
+            return expr;
+        }
+        const rhs = try s.parseOperandExpr(spaced_names);
+        return .{ .fallback = .{
+            .lhs = try s.p.makeExpr(expr),
+            .rhs = try s.p.makeExpr(rhs),
+        } };
+    }
+
     fn parseArg(s: *Scanner) Error!Arg {
         s.skipWs();
         const c = s.peek() orelse return s.err("expected a filter argument after ':'", .{});
@@ -575,6 +656,43 @@ const Scanner = struct {
                 .float => |f| .{ .number = f },
                 else => s.err("invalid number argument", .{}),
             };
+        }
+        if (c == '(') {
+            s.pos += 1;
+            var items = std.ArrayList(Literal).empty;
+            errdefer items.deinit(s.p.alloc);
+            s.skipWs();
+            if (s.peek() == ')') {
+                s.pos += 1;
+                return .{ .tuple = try items.toOwnedSlice(s.p.alloc) };
+            }
+            while (true) {
+                s.skipWs();
+                const item_c = s.peek() orelse
+                    return s.err("unclosed '(' in filter argument", .{});
+                if (item_c == '"' or item_c == '\'') {
+                    try items.append(s.p.alloc, .{ .string = try s.parseStringLit() });
+                } else if (s.matchWord("true")) {
+                    try items.append(s.p.alloc, .{ .boolean = true });
+                } else if (s.matchWord("false")) {
+                    try items.append(s.p.alloc, .{ .boolean = false });
+                } else {
+                    return s.err("tuple arguments hold quoted strings and 'true'/'false'", .{});
+                }
+                s.skipWs();
+                const sep = s.peek() orelse
+                    return s.err("unclosed '(' in filter argument", .{});
+                if (sep == ',') {
+                    s.pos += 1;
+                    continue;
+                }
+                if (sep == ')') {
+                    s.pos += 1;
+                    break;
+                }
+                return s.err("expected ',' or ')' in the tuple argument", .{});
+            }
+            return .{ .tuple = try items.toOwnedSlice(s.p.alloc) };
         }
         const start = s.pos;
         while (s.pos < s.text.len and isNameChar(s.text[s.pos])) s.pos += 1;
@@ -718,7 +836,7 @@ const Scanner = struct {
 
     fn parseComparison(s: *Scanner) Error!Cond {
         s.skipWs();
-        const lhs = try s.parseExpr(false);
+        const lhs = try s.parseOperandExpr(false);
         const save = s.pos;
         s.skipWs();
         var op: ?CmpOp = null;
@@ -739,7 +857,7 @@ const Scanner = struct {
         }
         if (op) |o| {
             s.skipWs();
-            const rhs = try s.parseExpr(false);
+            const rhs = try s.parseOperandExpr(false);
             return .{ .cmp = .{ .op = o, .lhs = lhs, .rhs = rhs } };
         }
         s.pos = save;
@@ -777,7 +895,7 @@ fn isWs(c: u8) bool {
 
 fn isNameChar(c: u8) bool {
     return switch (c) {
-        ' ', '\t', '\n', '\r', '.', '[', ']', '|', ':', '(', ')', '!', '=', '<', '>', '&', '\'', '"', '{', '}', '%', ',', '#', '\\' => false,
+        ' ', '\t', '\n', '\r', '.', '[', ']', '|', ':', '(', ')', '!', '=', '<', '>', '&', '\'', '"', '{', '}', '%', ',', '#', '\\', '?' => false,
         else => true,
     };
 }

@@ -101,7 +101,7 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "empty-logic-tag",
             .construct = "logic tag `{% ... %}`",
-            .why = "a logic tag needs a keyword — if, elseif, else, endif, for or endfor — followed by its expression",
+            .why = "a logic tag needs a keyword — if, elseif, else, endif, for, endfor or set — followed by its expression",
             .example = "{% if draft %}Draft{% endif %}",
         };
     } else if (startsWith(detail, "nesting too deep")) {
@@ -131,6 +131,20 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
             .construct = "`{% for %}` tag",
             .why = "a for tag holds exactly one clause — for <name> in <array> — with nothing after the array",
             .example = "{% for item in items %}{{ item }}{% endfor %}",
+        };
+    } else if (eql(detail, "expected a variable name after 'set'")) {
+        teaching = .{
+            .rule = "set-missing-name",
+            .construct = "`{% set %}` tag",
+            .why = "set binds a name to a value — {% set <name> = <expression> %} — and the name comes first",
+            .example = "{% set slug = title | kebab %}",
+        };
+    } else if (eql(detail, "expected '=' between the name and the value in '{% set %}'")) {
+        teaching = .{
+            .rule = "set-missing-equals",
+            .construct = "`{% set %}` tag",
+            .why = "the name and the value in a set tag are separated by =",
+            .example = "{% set slug = title | kebab %}",
         };
     } else if (endsWith(detail, "outside an if block") or
         endsWith(detail, "outside a for block"))
@@ -194,7 +208,7 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "missing-filter-name",
             .construct = "filter pipeline",
-            .why = "after the | comes a filter name from the registry: h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table, footnote, wikilink, embed, image, fragment_link, yaml, yaml_property, indent, kebab",
+            .why = "after the | comes a filter name from the registry: h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table, footnote, wikilink, embed, image, fragment_link, yaml, yaml_property, indent, kebab, callout",
             .example = "{{ name | bold }}",
         };
     } else if (eql(detail, "unexpected text in output tag (expected '|' or end of tag)")) {
@@ -231,6 +245,16 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
             .construct = "filter argument",
             .why = "after the colon comes the argument: a quoted string, a number, or a bare word resolved against the data root",
             .example = "{{ name | link:\"https://example.com/\" }}",
+        };
+    } else if (eql(detail, "unclosed '(' in filter argument") or
+        eql(detail, "expected ',' or ')' in the tuple argument") or
+        eql(detail, "tuple arguments hold quoted strings and 'true'/'false'"))
+    {
+        teaching = .{
+            .rule = "tuple-argument",
+            .construct = "tuple filter argument",
+            .why = "a tuple argument is parenthesized and comma-separated: quoted strings plus the bare words true and false — callout:(\"tip\", \"Note\") is the shape",
+            .example = "{{ message | callout:(\"tip\", \"Note\") }}",
         };
     } else if (eql(detail, "unclosed '[' in path") or
         eql(detail, "expected ']' after bracket key") or
@@ -281,7 +305,7 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "unknown-logic-tag",
             .construct = "logic tag `{% ... %}`",
-            .why = "the logic tags are if, elseif, else, endif, for and endfor; anything else is unknown",
+            .why = "the logic tags are if, elseif, else, endif, for, endfor and set; anything else is unknown",
             .example = "{% if draft %}Draft{% endif %}",
         };
     }
@@ -317,6 +341,7 @@ fn walkNodes(
         switch (node) {
             .text => {},
             .output => |pl| try walkPipeline(alloc, template, pl, findings),
+            .set => |sn| try walkPipeline(alloc, template, sn.pipeline, findings),
             .ifelse => |chain| {
                 for (chain.branches) |branch| {
                     try walkNodes(alloc, template, branch.body, findings);
@@ -333,52 +358,57 @@ fn walkPipeline(
     pl: parse.Pipeline,
     findings: *std.ArrayList(Finding),
 ) Error!void {
-    for (pl.filters) |call| {
-        const entry = findEntry(call.name) orelse {
-            const pos = diag.positionOf(template, call.offset);
-            try findings.append(alloc, .{
-                .rule = "unknown-filter",
-                .kind = .unknown_filter,
-                .line = pos.line,
-                .column = pos.column,
-                .detail = try std.fmt.allocPrint(alloc, "no filter named \"{s}\"", .{call.name}),
-                .construct = "filter",
-                .why = "the filter registry is h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table, footnote, wikilink, embed, image, fragment_link, yaml, yaml_property, indent, kebab — filter names come from the documented subset, not from imagination",
-                .example = "{{ text | bold }}",
-            });
-            continue;
-        };
-
-        if (!entry.takes_arg and call.arg != null) {
-            const pos = diag.positionOf(template, call.offset);
-            try findings.append(alloc, .{
-                .rule = "filter-arg-unexpected",
-                .kind = .bad_argument,
-                .line = pos.line,
-                .column = pos.column,
-                .detail = try std.fmt.allocPrint(alloc, "filter '{s}' takes no arguments", .{call.name}),
-                .construct = "filter argument",
-                .why = "only link takes an argument (a URL); every other filter in the registry stands alone after the |",
-                .example = "{{ text | bold }}",
-            });
-            continue;
-        }
-
-        if (std.mem.eql(u8, call.name, "link")) {
-            if (call.arg) |arg| {
-                try checkLinkArg(alloc, template, call, arg, findings);
-            } else {
+    // A `??` fallback is another pipeline stage: check every stage's
+    // filters for registry and argument problems.
+    var cur: ?*const parse.Pipeline = &pl;
+    while (cur) |stage| : (cur = stage.fallback) {
+        for (stage.filters) |call| {
+            const entry = findEntry(call.name) orelse {
                 const pos = diag.positionOf(template, call.offset);
                 try findings.append(alloc, .{
-                    .rule = "link-missing-url",
+                    .rule = "unknown-filter",
+                    .kind = .unknown_filter,
+                    .line = pos.line,
+                    .column = pos.column,
+                    .detail = try std.fmt.allocPrint(alloc, "no filter named \"{s}\"", .{call.name}),
+                    .construct = "filter",
+                    .why = "the filter registry is h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table, footnote, wikilink, embed, image, fragment_link, yaml, yaml_property, indent, kebab, callout — filter names come from the documented subset, not from imagination",
+                    .example = "{{ text | bold }}",
+                });
+                continue;
+            };
+
+            if (!entry.takes_arg and call.arg != null) {
+                const pos = diag.positionOf(template, call.offset);
+                try findings.append(alloc, .{
+                    .rule = "filter-arg-unexpected",
                     .kind = .bad_argument,
                     .line = pos.line,
                     .column = pos.column,
-                    .detail = "filter 'link' requires a URL argument",
-                    .construct = "`link` filter",
-                    .why = "link pairs the input text with a destination; the URL comes after the colon as a quoted string, a number, or a bare word naming a top-level data key",
-                    .example = "{{ name | link:url }}",
+                    .detail = try std.fmt.allocPrint(alloc, "filter '{s}' takes no arguments", .{call.name}),
+                    .construct = "filter argument",
+                    .why = "the registry marks which filters take an argument after the colon — this one takes none",
+                    .example = "{{ text | bold }}",
                 });
+                continue;
+            }
+
+            if (std.mem.eql(u8, call.name, "link")) {
+                if (call.arg) |arg| {
+                    try checkLinkArg(alloc, template, call, arg, findings);
+                } else {
+                    const pos = diag.positionOf(template, call.offset);
+                    try findings.append(alloc, .{
+                        .rule = "link-missing-url",
+                        .kind = .bad_argument,
+                        .line = pos.line,
+                        .column = pos.column,
+                        .detail = "filter 'link' requires a URL argument",
+                        .construct = "`link` filter",
+                        .why = "link pairs the input text with a destination; the URL comes after the colon as a quoted string, a number, or a bare word naming a top-level data key",
+                        .example = "{{ name | link:url }}",
+                    });
+                }
             }
         }
     }
@@ -398,6 +428,7 @@ fn checkLinkArg(
         .bare => return,
         .string => |s| s,
         .number => return,
+        .tuple => return,
     };
     const pos = diag.positionOf(template, call.offset);
     if (url.len == 0) {

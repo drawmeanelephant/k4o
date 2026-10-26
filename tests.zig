@@ -90,6 +90,12 @@ const cases = [_]Case{
     .{ .name = "filter-yaml-flow", .template = @embedFile("fixtures/filter-yaml-flow.knap"), .data = @embedFile("fixtures/filter-yaml-flow.json"), .expected = @embedFile("fixtures/filter-yaml-flow.textile") },
     .{ .name = "filter-yaml_property-basic", .template = @embedFile("fixtures/filter-yaml_property-basic.knap"), .data = @embedFile("fixtures/filter-yaml_property-basic.json"), .expected = @embedFile("fixtures/filter-yaml_property-basic.textile") },
     .{ .name = "filter-yaml_property-chain", .template = @embedFile("fixtures/filter-yaml_property-chain.knap"), .data = @embedFile("fixtures/filter-yaml_property-chain.json"), .expected = @embedFile("fixtures/filter-yaml_property-chain.textile") },
+    .{ .name = "filter-callout-basic", .template = @embedFile("fixtures/filter-callout-basic.knap"), .data = @embedFile("fixtures/filter-callout-basic.json"), .expected = @embedFile("fixtures/filter-callout-basic.textile") },
+    .{ .name = "filter-callout-collapsed", .template = @embedFile("fixtures/filter-callout-collapsed.knap"), .data = @embedFile("fixtures/filter-callout-collapsed.json"), .expected = @embedFile("fixtures/filter-callout-collapsed.textile") },
+    .{ .name = "logic-set-slug", .template = @embedFile("fixtures/logic-set-slug.knap"), .data = @embedFile("fixtures/logic-set-slug.json"), .expected = @embedFile("fixtures/logic-set-slug.textile") },
+    .{ .name = "logic-set-shadow", .template = @embedFile("fixtures/logic-set-shadow.knap"), .data = @embedFile("fixtures/logic-set-shadow.json"), .expected = @embedFile("fixtures/logic-set-shadow.textile") },
+    .{ .name = "logic-fallback-missing", .template = @embedFile("fixtures/logic-fallback-missing.knap"), .data = @embedFile("fixtures/logic-fallback-missing.json"), .expected = @embedFile("fixtures/logic-fallback-missing.textile") },
+    .{ .name = "logic-fallback-chain", .template = @embedFile("fixtures/logic-fallback-chain.knap"), .data = @embedFile("fixtures/logic-fallback-chain.json"), .expected = @embedFile("fixtures/logic-fallback-chain.textile") },
     .{ .name = "ex-table", .template = @embedFile("examples/table.knap"), .data = @embedFile("examples/table.json"), .expected = @embedFile("examples/table.textile") },
 };
 
@@ -1459,7 +1465,7 @@ test "unit: spaced names are not valid condition operands" {
 }
 
 test "unit: unknown logic tag names the tag" {
-    try renderErr("{% set x = 1 %}", "{}", "unknown logic tag 'set'");
+    try renderErr("{% wobble x = 1 %}", "{}", "unknown logic tag 'wobble'");
 }
 
 test "unit: duplicate else is rejected" {
@@ -1484,4 +1490,59 @@ test "unit: diagnostic fields for an unknown filter" {
     try testing.expectEqual(@as(u32, 1), d.line);
     try testing.expectEqual(@as(u32, 12), d.column);
     try assertTextileDialect();
+}
+
+
+test "unit: set binds a name that later tags and conditions resolve" {
+    try renderOk("{% set slug = title | kebab %}File: {{ slug }}.md", "{\"title\":\"Hello World\"}", "File: hello-world.md");
+    try renderOk("{% set x = \"lit\" %}{{ x }}", "{}", "lit");
+    try renderOk("{% set title = \"set wins\" %}{{ title }}", "{\"title\":\"data\"}", "set wins");
+    try renderOk("{% set n = 3 %}{{ n }}{% if n == 3 %} eq{% endif %}", "{}", "3 eq");
+    try renderOk("{% if x %}y{% else %}n{% endif %}{% set x = 1 %}{% if x %}y{% endif %}", "{}", "ny");
+}
+
+test "unit: a newline after a set tag is consumed" {
+    try renderOk("{% set x = 1 %}\nT\n", "{}", "T\n");
+}
+
+test "unit: set requires a name and an equals sign" {
+    try renderErr("{% set = 1 %}", "{}", "expected a variable name after 'set'");
+    try renderErr("{% set x 1 %}", "{}", "expected '='");
+}
+
+test "unit: ?? falls back on missing and null, chaining left to right" {
+    try renderOk("{{ a ?? \"d\" }}", "{}", "d");
+    try renderOk("{{ a ?? \"d\" }}", "{\"a\":null}", "d");
+    try renderOk("{{ a ?? \"d\" }}", "{\"a\":\"v\"}", "v");
+    try renderOk("{{a??\"d\"}}", "{}", "d");
+    try renderOk("{{ a ?? b ?? \"d\" }}", "{\"b\":\"B\"}", "B");
+    try renderOk("{{ a ?? b ?? \"d\" }}", "{}", "d");
+}
+
+test "unit: ?? binds looser than the filter pipe and works in logic tags" {
+    try renderOk("{{ a | kebab ?? \"d\" }}", "{}", "d");
+    try renderOk("{{ a ?? \"X Y\" | kebab }}", "{}", "x-y");
+    try renderOk("{% if a ?? \"\" %}y{% else %}n{% endif %}", "{}", "n");
+    try renderOk("{% set s = a ?? \"d\" %}{{ s }}", "{}", "d");
+    try renderOk("{% for x in a ?? b %}{{ x }}{% endfor %}", "{\"b\":[1,2]}", "12");
+}
+
+test "unit: callout emits an Obsidian blockquote, identical in every format" {
+    for ([_]kt.Format{ .textile, .markdown, .gfm }) |format| {
+        var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+        const data = try std.json.parseFromSliceLeaky(std.json.Value, arena, "{\"message\":\"Remember this\"}", .{});
+        var d = kt.Diagnostic{};
+        const out = try kt.renderFormat(arena, "{{ message | callout:(\"tip\", \"Note\") }}", data, &d, format);
+        try testing.expectEqualStrings("> [!tip] Note\n> Remember this", out);
+    }
+    try assertTextileDialect();
+}
+
+test "unit: callout validates its tuple argument" {
+    try renderErr("{{ m | callout }}", "{\"m\":\"x\"}", "requires a tuple argument");
+    try renderErr("{{ m | callout:\"tip\" }}", "{\"m\":\"x\"}", "requires a tuple argument");
+    try renderErr("{{ m | callout:(\"tip\") }}", "{\"m\":\"x\"}", "expects (type, title)");
+    try renderErr("{{ m | callout:(\"tip\", \"T\", \"yes\") }}", "{\"m\":\"x\"}", "must be 'true' or 'false'");
 }

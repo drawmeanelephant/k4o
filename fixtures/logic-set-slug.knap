@@ -1,0 +1,1 @@
+{% set slug = title | kebab %}File: {{ slug }}.md
