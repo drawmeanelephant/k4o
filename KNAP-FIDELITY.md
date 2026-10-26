@@ -222,3 +222,7 @@ runtime strip, not parse-time text surgery:
   one newline) — *unless the construct's own tags already consumed
   whitespace* (`x{% if t %}   {% endif %}   Z` keeps `x   Z` because the
   `   ` was eaten at parse; `x{% if f %}B{% endif %}   Z` gives `xZ`).
+- **Mid-tag line drop.** A left- and right-clean `{% elseif %}`/`{% else %}`,
+  indented or not, also drops its own line from the preceding body: the
+  `[ \t]*` before the tag and one `\r?\n` above it. Only one newline goes,
+  so blank lines above the tag survive (corpus `clipper-logic/elseif`).

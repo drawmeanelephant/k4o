@@ -164,7 +164,9 @@ const cases = [_]Case{
     .{ .name = "logic-contains-object", .template = @embedFile("fixtures/logic-contains-object.knap"), .data = @embedFile("fixtures/logic-contains-object.json"), .expected = @embedFile("fixtures/logic-contains-object.markdown") },
     .{ .name = "logic-contains-string", .template = @embedFile("fixtures/logic-contains-string.knap"), .data = @embedFile("fixtures/logic-contains-string.json"), .expected = @embedFile("fixtures/logic-contains-string.markdown") },
     .{ .name = "logic-else", .template = @embedFile("fixtures/logic-else.knap"), .data = @embedFile("fixtures/logic-else.json"), .expected = @embedFile("fixtures/logic-else.markdown") },
+    .{ .name = "logic-else-standalone", .template = @embedFile("fixtures/logic-else-standalone.knap"), .data = @embedFile("fixtures/logic-else-standalone.json"), .expected = @embedFile("fixtures/logic-else-standalone.markdown") },
     .{ .name = "logic-elseif", .template = @embedFile("fixtures/logic-elseif.knap"), .data = @embedFile("fixtures/logic-elseif.json"), .expected = @embedFile("fixtures/logic-elseif.markdown") },
+    .{ .name = "logic-elseif-standalone", .template = @embedFile("fixtures/logic-elseif-standalone.knap"), .data = @embedFile("fixtures/logic-elseif-standalone.json"), .expected = @embedFile("fixtures/logic-elseif-standalone.markdown") },
     .{ .name = "logic-eq-array-nested", .template = @embedFile("fixtures/logic-eq-array-nested.knap"), .data = @embedFile("fixtures/logic-eq-array-nested.json"), .expected = @embedFile("fixtures/logic-eq-array-nested.markdown") },
     .{ .name = "logic-eq-length-mismatch", .template = @embedFile("fixtures/logic-eq-length-mismatch.knap"), .data = @embedFile("fixtures/logic-eq-length-mismatch.json"), .expected = @embedFile("fixtures/logic-eq-length-mismatch.markdown") },
     .{ .name = "logic-eq-object-order", .template = @embedFile("fixtures/logic-eq-object-order.knap"), .data = @embedFile("fixtures/logic-eq-object-order.json"), .expected = @embedFile("fixtures/logic-eq-object-order.markdown") },
@@ -544,6 +546,21 @@ test "unit: loop over non-array is a render error" {
 test "unit: missing and null loop collections are empty" {
     try renderOk("A{% for x in missing %}b{% endfor %}Z", "{}", "AZ");
     try renderOk("A{% for x in n %}b{% endfor %}Z", "{\"n\":null}", "AZ");
+}
+
+test "unit: a standalone else/elseif drops its own line" {
+    // The spaces/tabs before the tag and the one newline ending the line
+    // above go; further blank lines in the body stay.
+    try renderOk("{% if a %}\nA\n{% elseif b %}\nB\n{% else %}\nC\n{% endif %}", "{\"b\":true}", "B");
+    try renderOk("A\n{% if t %}\n  T\n{% else %}\n  F\n{% endif %}\nZ", "{\"t\":true}", "A\n  T\nZ");
+    try renderOk("A\n{% if t %}\n  T\n  {% elseif u %}\n  F\n{% endif %}\nZ", "{\"t\":true}", "A\n  T\nZ");
+    try renderOk("{% if t %}\nT\n \n  {% else %}\nF\n{% endif %}", "{\"t\":true}", "T\n ");
+    try renderOk("{% if t %}\nT\n  {# c #} {% else %}\nF\n{% endif %}", "{\"t\":true}", "T");
+    try renderOk("{% if t %}\nT\n{% else %}   \nF\n{% endif %}", "{\"t\":true}", "T");
+    try renderOk("{% for i in xs %}\n{% if i == 1 %}\none\n{% else %}\nother\n{% endif %}\n{% endfor %}", "{\"xs\":[1,2]}", "one\nother");
+    // Not standalone: text after the tag, or text before it on its line.
+    try renderOk("A\n{% if t %}\nT\n{% else %}F{% endif %}\nZ", "{\"t\":true}", "A\nT\n\nZ");
+    try renderOk("A\n{% if t %}\nT\nx{% else %}\nF\n{% endif %}\nZ", "{\"t\":true}", "A\nT\nx\nZ");
 }
 
 test "unit: {% raw %} emits literal tags (issue #67)" {

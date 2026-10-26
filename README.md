@@ -117,8 +117,11 @@ The model matches the oracle byte-for-byte:
   `{% … %}` tags and `{# … #}` comments besides it. A standalone open,
   mid or set tag (`{% if %}`, `{% elseif %}`, `{% else %}`, `{% for %}`,
   `{% set %}`) consumes the rest of its own line — trailing spaces plus
-  one newline — and a standalone `{% elseif %}`/`{% else %}`/`{% endif %}`
-  additionally swallows the whitespace run that ends the body before it.
+  one newline. A standalone `{% elseif %}`/`{% else %}` also drops its own
+  line from the body before it: the spaces/tabs ahead of the tag and the
+  one newline that ends the line above, so `T\n\n\n{% else %}` keeps
+  `T\n\n`. A standalone column-0 `{% endif %}` swallows the whole
+  whitespace run that ends the body before it.
   `A\n{% if x %}\nB\n{% endif %}\nC` renders `A\nB\nC`. Whitespace *before*
   a standalone tag is ordinary emitted text — `A\n  {% if x %}\nB\n{% endif %}`
   renders `A\n  B`.

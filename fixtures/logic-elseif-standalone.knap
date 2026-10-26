@@ -1,0 +1,7 @@
+{% if status == "published" %}
+Live article
+{% elseif status == "draft" %}
+Draft article
+{% else %}
+Unknown status
+{% endif %}
