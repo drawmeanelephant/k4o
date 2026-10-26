@@ -41,7 +41,7 @@ reference variables (like `a[loop.index0]`) are not in the subset.
 Filters transform a value. Chains run left to right:
 `{{ name | italic | h2 }}`.
 
-The complete filter registry (15 names — there are no others):
+The complete filter registry (24 names — there are no others):
 
 | Filter | Argument | Emits (Textile form shown) |
 | --- | --- | --- |
@@ -143,3 +143,13 @@ If you cross-check the official knap docs, four deliberate differences:
 
 k4o's documented subset (this file) is the source of truth for what runs in
 the local `k4o` binary.
+
+## Referential filters (apparatus)
+
+`footnote` numbers arrays (`[^1]:`) or slugs object keys (`[^first-note]:`).
+`wikilink:"alias"` emits `[[target|alias]]`; `embed:"alias"` the `![[…]]` form.
+`image:"alt"` emits `![alt](url)`. `fragment_link:"text:url"` emits a
+`#:~:text=` deep link (default link text "link"). `yaml` / `yaml_property:"k"`
+emit the documented YAML forms (`yaml:flow` for `[a,b]`); `indent:N` pads each
+line N spaces; `kebab` slugifies. Collections collapse to typed arrays for
+chaining — `x | wikilink | yaml_property:"k"` yields a real list.

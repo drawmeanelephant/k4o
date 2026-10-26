@@ -1,0 +1,1 @@
+{{ directors | wikilink | yaml_property:"director" }}

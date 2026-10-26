@@ -245,7 +245,7 @@ k4o lint: 1 problem(s) in 1 of 1 file(s)
 - **Stable exit codes.** `0` when every file is clean, `1` when any file has
   findings or cannot be read. Findings go to stdout.
 - **Static scope.** lint checks what is knowable without data: template
-  syntax, the 15-filter registry, argument arity, and the `link` URL rules
+  syntax, the 24-filter registry, argument arity, and the `link` URL rules
   that a literal argument already violates. Data-dependent failures (a loop
   over a non-array, a ragged table) are render errors and stay with
   `k4o render`.
@@ -304,7 +304,7 @@ on stderr.
 
 ## Filter registry → output formats
 
-This is the complete registry (15 names). The fixture corpus pins all three
+This is the complete registry (24 names). The fixture corpus pins all three
 formats byte-for-byte for every filter, reusing `.markdown` expectations for
 non-table GFM output and `.gfm` expectations for tables. The Markdown table is
 raw HTML because pipe tables are a GFM extension, not part of CommonMark 0.31.2.

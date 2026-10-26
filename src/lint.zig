@@ -194,7 +194,7 @@ fn classifyParseFailure(d: *diag.Diagnostic) Finding {
         teaching = .{
             .rule = "missing-filter-name",
             .construct = "filter pipeline",
-            .why = "after the | comes a filter name from the registry: h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table",
+            .why = "after the | comes a filter name from the registry: h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table, footnote, wikilink, embed, image, fragment_link, yaml, yaml_property, indent, kebab",
             .example = "{{ name | bold }}",
         };
     } else if (eql(detail, "unexpected text in output tag (expected '|' or end of tag)")) {
@@ -343,7 +343,7 @@ fn walkPipeline(
                 .column = pos.column,
                 .detail = try std.fmt.allocPrint(alloc, "no filter named \"{s}\"", .{call.name}),
                 .construct = "filter",
-                .why = "the filter registry is h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table — filter names come from the documented subset, not from imagination",
+                .why = "the filter registry is h1-h6, bold, italic, code, codeblock, blockquote, link, list, numbered, table, footnote, wikilink, embed, image, fragment_link, yaml, yaml_property, indent, kebab — filter names come from the documented subset, not from imagination",
                 .example = "{{ text | bold }}",
             });
             continue;
